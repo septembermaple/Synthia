@@ -1,44 +1,72 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from './contexts/AuthContext';
 
-function App() {
+function App({ requireAuth }) {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [images, setImages] = useState([]);
   const [selectedPrompt, setSelectedPrompt] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [imageCount, setImageCount] = useState(1);
+  const [keepFace, setKeepFace] = useState(true);
+  const [selectedScene, setSelectedScene] = useState('');
+  const [activeTab, setActiveTab] = useState('全部');
+  const [heroStyleIndex, setHeroStyleIndex] = useState(0);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const fileInputRef = useRef(null);
 
-  // 预置的描述词列表
   const prompts = [
-    '专业写真，光线柔和，色彩丰富',
-    '艺术肖像，黑白风格，高对比度',
-    '时尚杂志风格，鲜艳色彩，动感',
-    '自然户外写真，阳光明媚，清新',
-    '复古风格，胶片质感，温暖色调',
-    '科技感未来风格，霓虹灯光，赛博朋克',
-    '简约风格，干净背景，突出人物',
-    '梦幻风格，柔和光晕，浪漫氛围',
-    '酒吧氛围，清瘦精致的脸形，白皙的皮肤，留着深棕色韩版微分碎盖，自然且蓬松。左耳戴着一枚简约银质耳钉。眼神慵懒淡漠，略带疏离感，表情平静冷峻，没有明显笑容，传递出一种漫不经心的氛围感。以正脸且低角度自拍视角呈现，人物整张脸及脖子都是红的，貌似喝醉酒红脸一般，右手自然地握着一只装有半杯金黄色酒液的透明威士忌杯，手臂放松地搭在身侧，整体姿态随性放松。身穿一件宽松的黑色机能风连帽外套，光线打到衣服正面大片范围，面料呈现哑光质感，版型简约利落。背景是昏暗的Livehouse或小型酒吧场景，左后方有两三个红色白色舞台灯，空气中弥漫着细腻的烟雾，光线在烟雾中形成明显的光束效果。远处可见深色的天花板结构与灰色皮质沙发，整体环境营造出一种迷离又充满氛围感的夜场氛围。写实人像风格，高清晰度，细腻的皮肤纹理与衣物质感，自然的光影层次，冷调与暖调光线对比强烈，颗粒感轻微，突出人物主体与环境的沉浸感。比例3:4'
+    { name: '专业写真', description: '光线柔和，色彩丰富', category: '复古' },
+    { name: '艺术肖像', description: '黑白风格，高对比度', category: '复古' },
+    { name: '时尚杂志', description: '鲜艳色彩，动感', category: '现代' },
+    { name: '自然户外', description: '阳光明媚，清新', category: '自然' },
+    { name: '复古胶片', description: '胶片质感，温暖色调', category: '复古' },
+    { name: '赛博朋克', description: '霓虹灯光，未来科技', category: '幻想' },
+    { name: '简约风格', description: '干净背景，突出人物', category: '现代' },
+    { name: '梦幻风格', description: '柔和光晕，浪漫氛围', category: '幻想' },
+    { name: '酒吧氛围', description: '昏暗灯光，迷离氛围', category: '现代' }
   ];
 
-  // 处理图片上传
+  const scenes = [
+    { name: '末日废土', description: '末日废土场景，荒凉的沙漠，破败的建筑残骸，灰暗的天空，废墟中的生存者氛围，破旧的衣物，风沙弥漫，末日后的世界' },
+    { name: '古装仙侠', description: '古装仙侠场景，飘逸的汉服，仙气缭绕，古风建筑，竹林深处，云雾缭绕的山峰，修仙者的意境，水墨画风格背景' },
+    { name: '现代都市', description: '现代都市场景，繁华的街道，高楼大厦，霓虹灯闪烁，都市夜景，时尚的现代建筑，车水马龙' },
+    { name: '自然森林', description: '自然森林场景，茂密的树林，阳光透过树叶，清新的空气，野花盛开，小溪流淌，自然的宁静' },
+    { name: '海边沙滩', description: '海边沙滩场景，金色的沙滩，蔚蓝的大海，椰树摇曳，阳光明媚，海浪轻拍，度假氛围' },
+    { name: '雪景冰原', description: '雪景冰原场景，白雪皑皑，冰天雪地，雪花飘落，冰川山脉，寒冷而纯净的氛围' }
+  ];
+
+  const tabs = ['全部', '复古', '幻想', '自然', '现代'];
+
+  const heroStyles = [
+    { name: '港风复古', image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800' },
+    { name: '末日废土', image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800' },
+    { name: '星空梦幻', image: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=800' }
+  ];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setHeroStyleIndex((prev) => (prev + 1) % heroStyles.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleImageUpload = (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
-    const imagePreviews = files.map(file => {
-      return {
-        id: Date.now() + Math.random(),
-        url: URL.createObjectURL(file),
-        file
-      };
-    });
+    const imagePreviews = files.map(file => ({
+      id: Date.now() + Math.random(),
+      url: URL.createObjectURL(file),
+      file
+    }));
 
     setImages(prevImages => [...prevImages, ...imagePreviews]);
   };
 
-  // 将图片转换为base64
   const imageToBase64 = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -48,7 +76,6 @@ function App() {
     });
   };
 
-  // 处理拖放
   const handleDragOver = (e) => {
     e.preventDefault();
     e.currentTarget.classList.add('dragover');
@@ -66,31 +93,32 @@ function App() {
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
 
-    const imagePreviews = files.map(file => {
-      return {
-        id: Date.now() + Math.random(),
-        url: URL.createObjectURL(file),
-        file
-      };
-    });
+    const imagePreviews = files.map(file => ({
+      id: Date.now() + Math.random(),
+      url: URL.createObjectURL(file),
+      file
+    }));
 
     setImages(prevImages => [...prevImages, ...imagePreviews]);
   };
 
-  // 处理描述词选择
-  const handlePromptSelect = (prompt) => {
-    setSelectedPrompt(prompt);
-  };
-
-  // 调用豆包API生成图片
   const generateImages = async () => {
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    console.log('当前selectedPrompt:', selectedPrompt);
+    console.log('当前images:', images.length);
+    
     if (images.length === 0) {
       setError('请先上传至少一张图片');
       return;
     }
 
     if (!selectedPrompt) {
-      setError('请选择一个描述词');
+      setError('请选择一个风格');
+      console.log('selectedPrompt为空，无法生成');
       return;
     }
 
@@ -99,22 +127,34 @@ function App() {
     setResults([]);
 
     try {
-      // 豆包API配置
-      const API_KEY = import.meta.env.VITE_DOUBAO_API_KEY; // 从环境变量获取API密钥
+      const API_KEY = import.meta.env.VITE_DOUBAO_API_KEY;
       const API_URL = 'https://ark.cn-beijing.volces.com/api/v3/images/generations';
 
       if (!API_KEY) {
         throw new Error('请在.env文件中设置VITE_DOUBAO_API_KEY');
       }
 
-      // 将图片转换为base64
       const imageBase64 = await imageToBase64(images[0].file);
       console.log('图片转换为base64成功');
 
-      // 准备请求数据
+      let finalPrompt = selectedPrompt.description;
+      
+      if (keepFace) {
+        finalPrompt = '（保持图一人物的五官不变）' + finalPrompt;
+      }
+      
+      if (selectedScene) {
+        const sceneData = scenes.find(s => s.name === selectedScene);
+        if (sceneData) {
+          finalPrompt = finalPrompt + '，' + sceneData.description;
+        }
+      }
+
+      console.log('最终提示词:', finalPrompt);
+
       const requestData = {
         model: 'doubao-seedream-4-0-250828',
-        prompt: selectedPrompt,
+        prompt: finalPrompt,
         image: [imageBase64],
         sequential_image_generation: 'auto',
         sequential_image_generation_options: {
@@ -128,7 +168,6 @@ function App() {
 
       console.log('请求数据:', requestData);
 
-      // 发送API请求
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -211,138 +250,279 @@ function App() {
     }
   };
 
-  // 移除上传的图片
   const removeImage = (id) => {
     setImages(prevImages => prevImages.filter(img => img.id !== id));
   };
 
+  const filteredPrompts = activeTab === '全部' 
+    ? prompts 
+    : prompts.filter(p => p.category === activeTab);
+
   return (
-    <div className="container">
-      <h1>Synthia - 自拍生成写真</h1>
-      
-      {/* 图片上传区域 */}
-      <div 
-        className="upload-section"
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onClick={() => fileInputRef.current.click()}
-      >
-        <input
-          type="file"
-          ref={fileInputRef}
-          multiple
-          accept="image/*"
-          style={{ display: 'none' }}
-          onChange={handleImageUpload}
-        />
-        <h3>点击或拖拽上传图片</h3>
-        <p>支持上传一张或多张自拍正脸照片</p>
-        
-        {/* 图片预览 */}
-        {images.length > 0 && (
-          <div className="image-preview">
-            {images.map(img => (
-              <div key={img.id} style={{ position: 'relative' }}>
-                <img 
-                  src={img.url} 
-                  alt="预览" 
-                  className="preview-image"
-                />
-                <button 
-                  style={{
-                    position: 'absolute',
-                    top: '-10px',
-                    right: '-10px',
-                    background: '#f44336',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '50%',
-                    width: '20px',
-                    height: '20px',
-                    cursor: 'pointer',
-                    fontSize: '12px'
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeImage(img.id);
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
+    <div className="app-container">
+      {/* User Menu */}
+      <div className="user-menu">
+        {user ? (
+          <>
+            <div className="user-info">
+              <span className="user-phone">{user.phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')}</span>
+            </div>
+            <button className="logout-btn" onClick={logout}>退出</button>
+          </>
+        ) : (
+          <button className="login-btn" onClick={() => navigate('/login')}>登录</button>
         )}
       </div>
 
-      {/* 描述词选择区域 */}
-      <div className="prompt-section">
-        <h3>选择描述词</h3>
-        <div className="prompt-list">
-          {prompts.map((prompt, index) => (
-            <div
-              key={index}
-              className={`prompt-tag ${selectedPrompt === prompt ? 'selected' : ''}`}
-              onClick={() => handlePromptSelect(prompt)}
-            >
-              {prompt}
+      {/* Auth Modal */}
+      {showAuthModal && (
+        <div className="auth-overlay">
+          <div className="auth-modal">
+            <h2>需要登录</h2>
+            <p>请先登录后再使用图片生成功能</p>
+            <div className="auth-modal-buttons">
+              <button className="cancel-btn" onClick={() => setShowAuthModal(false)}>取消</button>
+              <button className="confirm-btn" onClick={() => navigate('/login')}>去登录</button>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 图片数量选择 */}
-      <div className="image-count-section">
-        <h3>生成图片数量</h3>
-        <div className="image-count-selector">
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(count => (
-            <button
-              key={count}
-              className={`count-button ${imageCount === count ? 'selected' : ''}`}
-              onClick={() => setImageCount(count)}
-            >
-              {count}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 生成按钮 */}
-      <button 
-        className="generate-button"
-        onClick={generateImages}
-        disabled={loading}
-      >
-        {loading ? '生成中...' : '生成写真'}
-      </button>
-
-      {/* 错误提示 */}
-      {error && <div className="error">{error}</div>}
-
-      {/* 加载状态 */}
-      {loading && (
-        <div className="loading">
-          <div className="spinner"></div>
-          <p>正在生成写真，请稍候...</p>
+          </div>
         </div>
       )}
 
-      {/* 结果展示区域 */}
-      {results.length > 0 && (
-        <div className="result-section">
-          <h3>生成结果</h3>
-          <div className="result-grid">
-            {results.map((result, index) => (
-              <img 
-                key={index} 
-                src={result} 
-                alt={`生成结果 ${index + 1}`} 
-                className="result-image"
-              />
-            ))}
+      {/* Hero Section */}
+      <section className="hero-section">
+        <h1 className="hero-title">上传一张照片，遇见平行世界的你</h1>
+        <p className="hero-subtitle">AI驱动的写真生成，让每一张自拍都成为艺术品</p>
+        
+        <div className="hero-image-container">
+          <img 
+            src={heroStyles[heroStyleIndex].image} 
+            alt={heroStyles[heroStyleIndex].name}
+            className="hero-image"
+          />
+          <div className="hero-overlay"></div>
+        </div>
+
+        <div className="scroll-indicator">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M7 13l5 5 5-5M7 6l5 5 5-5"/>
+          </svg>
+        </div>
+      </section>
+
+      {/* Gallery Section */}
+      <section className="gallery-section">
+        <h2 className="section-title">风格画廊</h2>
+        
+        <div className="tab-bar">
+          {tabs.map(tab => (
+            <button
+              key={tab}
+              className={`tab-item ${activeTab === tab ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        <div className="gallery-grid">
+          {filteredPrompts.map((prompt, index) => (
+            <div
+              key={index}
+              className={`style-card ${selectedPrompt?.name === prompt.name ? 'selected' : ''}`}
+              onClick={() => {
+                console.log('点击了风格:', prompt.name);
+                setSelectedPrompt(prompt);
+              }}
+              style={{ cursor: 'pointer' }}
+            >
+              <div 
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  background: `linear-gradient(135deg, 
+                    hsl(${index * 40}, 70%, 60%) 0%, 
+                    hsl(${index * 40 + 60}, 70%, 40%) 100%)`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '3rem'
+                }}
+              >
+                {['📷', '🎨', '✨', '🌿', '🎬', '🚀', '💫', '🌙', '🎭'][index]}
+              </div>
+              <div className="style-card-overlay">
+                <h3 className="style-card-title">{prompt.name}</h3>
+                <p className="style-card-description">{prompt.description}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Upload Section */}
+      <section className="upload-section">
+        <h2 className="section-title">开始创作</h2>
+        
+        {selectedPrompt && (
+          <div style={{ 
+            maxWidth: '800px', 
+            margin: '0 auto 2rem', 
+            padding: '1rem 1.5rem',
+            background: 'var(--glass-bg)',
+            borderRadius: '12px',
+            border: '1px solid var(--accent-color)',
+            textAlign: 'center'
+          }}>
+            <span style={{ color: 'var(--text-secondary)', marginRight: '0.5rem' }}>已选择风格：</span>
+            <span style={{ color: 'var(--accent-color)', fontWeight: '600' }}>{selectedPrompt.name}</span>
+            <span style={{ color: 'var(--text-muted)', marginLeft: '0.5rem' }}>- {selectedPrompt.description}</span>
+          </div>
+        )}
+        
+        <div className="upload-container">
+          <div 
+            className="upload-box"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current.click()}
+          >
+            <input
+              type="file"
+              ref={fileInputRef}
+              multiple
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={handleImageUpload}
+            />
+            
+            {loading && (
+              <div className="scanning-overlay">
+                <div className="scanning-line"></div>
+                <p className="scanning-text">正在分析面部特征...</p>
+              </div>
+            )}
+
+            {images.length === 0 ? (
+              <>
+                <svg className="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <p className="upload-text">拖拽或点击上传照片</p>
+                <p className="upload-hint">支持 JPG、PNG 格式</p>
+              </>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
+                {images.map(img => (
+                  <div key={img.id} style={{ position: 'relative' }}>
+                    <img 
+                      src={img.url} 
+                      alt="预览" 
+                      style={{ width: '150px', height: '150px', objectFit: 'cover', borderRadius: '12px' }}
+                    />
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeImage(img.id);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        top: '-8px',
+                        right: '-8px',
+                        background: '#ff6b6b',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '50%',
+                        width: '24px',
+                        height: '24px',
+                        cursor: 'pointer',
+                        fontSize: '14px'
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Options Panel */}
+          <div className="options-panel">
+            <div className="option-group">
+              <label className="option-label">人脸保持</label>
+              <label className="checkbox-option">
+                <input
+                  type="checkbox"
+                  checked={keepFace}
+                  onChange={(e) => setKeepFace(e.target.checked)}
+                />
+                <span>保持原有人物五官特征</span>
+              </label>
+            </div>
+
+            <div className="option-group">
+              <label className="option-label">选择场景</label>
+              <div className="option-grid">
+                {scenes.map(scene => (
+                  <button
+                    key={scene.name}
+                    className={`option-chip ${selectedScene === scene.name ? 'selected' : ''}`}
+                    onClick={() => setSelectedScene(scene.name === selectedScene ? '' : scene.name)}
+                  >
+                    {scene.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="option-group">
+              <label className="option-label">生成数量</label>
+              <div className="option-grid">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(count => (
+                  <button
+                    key={count}
+                    className={`option-chip ${imageCount === count ? 'selected' : ''}`}
+                    onClick={() => setImageCount(count)}
+                  >
+                    {count}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button 
+              className="generate-button"
+              onClick={generateImages}
+              disabled={loading}
+            >
+              {loading ? '生成中...' : '开始生成'}
+            </button>
+
+            {error && <div className="error-message">{error}</div>}
           </div>
         </div>
+      </section>
+
+      {/* Results Section */}
+      {results.length > 0 && (
+        <section className="results-section">
+          <h2 className="section-title">生成结果</h2>
+          <div className="results-grid">
+            {results.map((result, index) => (
+              <div key={index} className="result-card">
+                <img 
+                  src={result} 
+                  alt={`生成结果 ${index + 1}`} 
+                  className="result-image"
+                />
+              </div>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );
