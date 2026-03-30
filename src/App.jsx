@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 
 function App({ requireAuth }) {
-  const { user, logout } = useAuth();
+  const { user, logout, consumePoints } = useAuth();
   const navigate = useNavigate();
   const [images, setImages] = useState([]);
   const [selectedPrompt, setSelectedPrompt] = useState(null);
@@ -115,6 +115,18 @@ function App({ requireAuth }) {
 
     if (!selectedPrompt) {
       setError('请选择一个风格');
+      return;
+    }
+
+    const pointsRequired = imageCount * 10;
+    if (user.points < pointsRequired) {
+      setError(`积分不足！生成${imageCount}张图片需要${pointsRequired}积分，当前积分：${user.points}`);
+      return;
+    }
+
+    const consumeResult = consumePoints(pointsRequired, `生成${imageCount}张${selectedPrompt.name}风格图片`);
+    if (!consumeResult.success) {
+      setError(consumeResult.message);
       return;
     }
 
@@ -242,7 +254,9 @@ function App({ requireAuth }) {
           <>
             <div className="user-info">
               <span className="user-phone">{user.phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')}</span>
+              <span className="user-points-display">💰 {user.points} 积分</span>
             </div>
+            <button className="dashboard-btn" onClick={() => navigate('/dashboard')}>用户中心</button>
             <button className="logout-btn" onClick={logout}>退出</button>
           </>
         ) : (
