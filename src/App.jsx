@@ -6,7 +6,7 @@ function App({ requireAuth }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [images, setImages] = useState([]);
-  const [selectedPrompt, setSelectedPrompt] = useState('');
+  const [selectedPrompt, setSelectedPrompt] = useState(null);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -19,15 +19,15 @@ function App({ requireAuth }) {
   const fileInputRef = useRef(null);
 
   const prompts = [
-    { name: '专业写真', description: '光线柔和，色彩丰富', category: '复古' },
-    { name: '艺术肖像', description: '黑白风格，高对比度', category: '复古' },
-    { name: '时尚杂志', description: '鲜艳色彩，动感', category: '现代' },
-    { name: '自然户外', description: '阳光明媚，清新', category: '自然' },
-    { name: '复古胶片', description: '胶片质感，温暖色调', category: '复古' },
-    { name: '赛博朋克', description: '霓虹灯光，未来科技', category: '幻想' },
-    { name: '简约风格', description: '干净背景，突出人物', category: '现代' },
-    { name: '梦幻风格', description: '柔和光晕，浪漫氛围', category: '幻想' },
-    { name: '酒吧氛围', description: '昏暗灯光，迷离氛围', category: '现代' }
+    { name: '专业写真', description: '光线柔和，色彩丰富', category: '复古', image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&h=800&fit=crop' },
+    { name: '艺术肖像', description: '黑白风格，高对比度', category: '复古', image: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=600&h=800&fit=crop&sat=-100' },
+    { name: '时尚杂志', description: '鲜艳色彩，动感', category: '现代', image: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600&h=800&fit=crop' },
+    { name: '自然户外', description: '阳光明媚，清新', category: '自然', image: 'https://images.unsplash.com/photo-1519742866993-66d3cfef4bbd?w=600&h=800&fit=crop' },
+    { name: '复古胶片', description: '胶片质感，温暖色调', category: '复古', image: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=600&h=800&fit=crop' },
+    { name: '赛博朋克', description: '霓虹灯光，未来科技', category: '幻想', image: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?w=600&h=800&fit=crop' },
+    { name: '简约风格', description: '干净背景，突出人物', category: '现代', image: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=600&h=800&fit=crop' },
+    { name: '梦幻风格', description: '柔和光晕，浪漫氛围', category: '幻想', image: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=600&h=800&fit=crop' },
+    { name: '酒吧氛围', description: '昏暗灯光，迷离氛围', category: '现代', image: 'https://images.unsplash.com/photo-1495603889488-42d1d66e5523?w=600&h=800&fit=crop' }
   ];
 
   const scenes = [
@@ -107,9 +107,6 @@ function App({ requireAuth }) {
       setShowAuthModal(true);
       return;
     }
-
-    console.log('当前selectedPrompt:', selectedPrompt);
-    console.log('当前images:', images.length);
     
     if (images.length === 0) {
       setError('请先上传至少一张图片');
@@ -118,7 +115,6 @@ function App({ requireAuth }) {
 
     if (!selectedPrompt) {
       setError('请选择一个风格');
-      console.log('selectedPrompt为空，无法生成');
       return;
     }
 
@@ -135,7 +131,6 @@ function App({ requireAuth }) {
       }
 
       const imageBase64 = await imageToBase64(images[0].file);
-      console.log('图片转换为base64成功');
 
       let finalPrompt = selectedPrompt.description;
       
@@ -149,8 +144,6 @@ function App({ requireAuth }) {
           finalPrompt = finalPrompt + '，' + sceneData.description;
         }
       }
-
-      console.log('最终提示词:', finalPrompt);
 
       const requestData = {
         model: 'doubao-seedream-4-0-250828',
@@ -166,8 +159,6 @@ function App({ requireAuth }) {
         watermark: true
       };
 
-      console.log('请求数据:', requestData);
-
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -177,9 +168,6 @@ function App({ requireAuth }) {
         body: JSON.stringify(requestData)
       });
 
-      console.log('API响应状态:', response.status);
-      console.log('API响应头:', Object.fromEntries(response.headers));
-
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`API请求失败: ${response.status} ${response.statusText}\n${errorText}`);
@@ -187,7 +175,6 @@ function App({ requireAuth }) {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let responseText = '';
       let generatedImages = [];
       let currentEvent = '';
 
@@ -196,51 +183,40 @@ function App({ requireAuth }) {
         if (done) break;
         
         const chunk = decoder.decode(value, { stream: true });
-        responseText += chunk;
-        console.log('收到响应块:', chunk);
-        
         const lines = chunk.split('\n');
+        
         for (const line of lines) {
           const trimmedLine = line.trim();
           
           if (trimmedLine.startsWith('event:')) {
             currentEvent = trimmedLine.substring(6).trim();
-            console.log('事件类型:', currentEvent);
           }
           
           if (trimmedLine.startsWith('data:')) {
             const dataStr = trimmedLine.substring(5).trim();
             
             if (dataStr === '[DONE]') {
-              console.log('流结束');
               break;
             }
             
             if (dataStr && currentEvent === 'image_generation.partial_succeeded') {
               try {
                 const data = JSON.parse(dataStr);
-                console.log('解析到图片数据:', data);
-                
                 if (data && data.url) {
                   generatedImages.push(data.url);
-                  console.log('添加图片URL:', data.url);
                 }
               } catch (e) {
                 console.error('解析数据失败:', e);
-                console.error('数据内容:', dataStr);
               }
             }
           }
         }
       }
 
-      console.log('完整响应内容:', responseText);
-      console.log('收集到的图片URL:', generatedImages);
-
       if (generatedImages.length > 0) {
         setResults(generatedImages);
       } else {
-        throw new Error(`API响应格式错误\n完整响应: ${responseText}`);
+        throw new Error('API响应格式错误，未获取到生成的图片');
       }
     } catch (err) {
       setError(`生成图片失败: ${err.message}`);
@@ -330,31 +306,63 @@ function App({ requireAuth }) {
             <div
               key={index}
               className={`style-card ${selectedPrompt?.name === prompt.name ? 'selected' : ''}`}
-              onClick={() => {
-                console.log('点击了风格:', prompt.name);
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
                 setSelectedPrompt(prompt);
               }}
-              style={{ cursor: 'pointer' }}
             >
-              <div 
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  background: `linear-gradient(135deg, 
-                    hsl(${index * 40}, 70%, 60%) 0%, 
-                    hsl(${index * 40 + 60}, 70%, 40%) 100%)`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '3rem'
-                }}
-              >
-                {['📷', '🎨', '✨', '🌿', '🎬', '🚀', '💫', '🌙', '🎭'][index]}
-              </div>
+              <img 
+                src={prompt.image}
+                alt={prompt.name}
+                className="style-card-image"
+              />
               <div className="style-card-overlay">
                 <h3 className="style-card-title">{prompt.name}</h3>
                 <p className="style-card-description">{prompt.description}</p>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setSelectedPrompt(prompt);
+                  }}
+                  style={{
+                    marginTop: '1rem',
+                    padding: '0.5rem 1.5rem',
+                    background: selectedPrompt?.name === prompt.name 
+                      ? 'var(--accent-color)' 
+                      : 'rgba(255, 255, 255, 0.2)',
+                    border: '1px solid var(--accent-color)',
+                    borderRadius: '20px',
+                    color: 'white',
+                    fontSize: '0.9rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    pointerEvents: 'auto'
+                  }}
+                >
+                  {selectedPrompt?.name === prompt.name ? '已选择 ✓' : '选择此风格'}
+                </button>
               </div>
+              {selectedPrompt?.name === prompt.name && (
+                <div style={{
+                  position: 'absolute',
+                  top: '10px',
+                  right: '10px',
+                  width: '30px',
+                  height: '30px',
+                  background: 'var(--accent-color)',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: '1.2rem',
+                  zIndex: 10
+                }}>
+                  ✓
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -122,6 +122,8 @@ body {
 .gallery-section {
   padding: 6rem 2rem;
   background: var(--secondary-bg);
+  position: relative;
+  z-index: 2;
 }
 
 .section-title {
@@ -175,6 +177,8 @@ body {
   gap: 1.5rem;
   max-width: 1400px;
   margin: 0 auto;
+  position: relative;
+  z-index: 3;
 }
 
 .style-card {
@@ -185,11 +189,7 @@ body {
   cursor: pointer;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: var(--card-shadow);
-}
-
-.style-card:hover {
-  transform: translateY(-8px) scale(1.02);
-  box-shadow: 0 20px 60px rgba(0, 212, 255, 0.3);
+  z-index: 1;
 }
 
 .style-card-image {
@@ -201,6 +201,11 @@ body {
 
 .style-card:hover .style-card-image {
   transform: scale(1.1);
+}
+
+.style-card:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 20px 60px rgba(0, 212, 255, 0.3);
 }
 
 .style-card.selected {
@@ -221,7 +226,7 @@ body {
   background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, transparent 100%);
   transform: translateY(100%);
   transition: transform 0.4s ease;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .style-card:hover .style-card-overlay {

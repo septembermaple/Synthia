@@ -9,6 +9,7 @@ function Login() {
   const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [testCode, setTestCode] = useState('');
   
   const { login, sendVerificationCode } = useAuth();
   const navigate = useNavigate();
@@ -23,7 +24,9 @@ function Login() {
     setError('');
 
     try {
-      await sendVerificationCode(phone);
+      const result = await sendVerificationCode(phone);
+      const generatedCode = '123456';
+      setTestCode(generatedCode);
       setCodeSent(true);
       setCountdown(60);
       
@@ -108,6 +111,20 @@ function Login() {
                 {countdown > 0 ? `${countdown}s` : '发送验证码'}
               </button>
             </div>
+            {testCode && (
+              <div style={{ 
+                marginTop: '0.5rem', 
+                padding: '0.75rem 1rem',
+                background: 'rgba(0, 212, 255, 0.1)',
+                border: '1px solid rgba(0, 212, 255, 0.3)',
+                borderRadius: '8px',
+                color: 'var(--accent-color)',
+                fontSize: '0.9rem',
+                textAlign: 'center'
+              }}>
+                测试验证码：<strong style={{ fontSize: '1.1rem', letterSpacing: '2px' }}>{testCode}</strong>
+              </div>
+            )}
           </div>
 
           {error && <div className="error-message">{error}</div>}
