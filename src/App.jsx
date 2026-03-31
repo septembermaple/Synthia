@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
+import { promptLibrary } from './data/promptLibrary';
 
 function App({ requireAuth }) {
-  const { user, logout, consumePoints } = useAuth();
+  const { user, logout, consumePoints, saveGenerationRecord, markPromptAsUsed, getUsedPromptIds } = useAuth();
   const navigate = useNavigate();
   const [images, setImages] = useState([]);
   const [selectedPrompt, setSelectedPrompt] = useState(null);
@@ -100,6 +101,136 @@ function App({ requireAuth }) {
     }));
 
     setImages(prevImages => [...prevImages, ...imagePreviews]);
+  };
+
+  const randomGenerate = async () => {
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    if (images.length === 0) {
+      setError('请先上传至少一张图片');
+      return;
+    }
+
+    const pointsRequired = 30;
+    if (user.points < pointsRequired) {
+      setError(`积分不足！随机生成需要${pointsRequired}积分，当前积分：${user.points}`);
+      return;
+    }
+
+    const usedPromptIds = getUsedPromptIds();
+    const availablePrompts = promptLibrary.filter(p => !usedPromptIds.includes(p.id));
+    
+    if (availablePrompts.length === 0) {
+      setError('您已体验完所有描述词，请联系管理员添加更多描述词');
+      return;
+    }
+
+    const randomPrompt = availablePrompts[Math.floor(Math.random() * availablePrompts.length)];
+
+    const consumeResult = consumePoints(pointsRequired, `随机生成3张图片（ID: ${randomPrompt.id}）`);
+    if (!consumeResult.success) {
+      setError(consumeResult.message);
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setResults([]);
+
+    try {
+      const API_KEY = import.meta.env.VITE_DOUBAO_API_KEY;
+      const API_URL = 'https://ark.cn-beijing.volces.com/api/v3/images/generations';
+
+      if (!API_KEY) {
+        throw new Error('请在.env文件中设置VITE_DOUBAO_API_KEY');
+      }
+
+      const imageBase64 = await imageToBase64(images[0].file);
+
+      const requestData = {
+        model: 'doubao-seedream-4-0-250828',
+        prompt: randomPrompt.description,
+        image: [imageBase64],
+        sequential_image_generation: 'auto',
+        sequential_image_generation_options: {
+          max_images: 3
+        },
+        response_format: 'url',
+        size: '2K',
+        stream: true,
+        watermark: true
+      };
+
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${API_KEY}`
+        },
+        body: JSON.stringify(requestData)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API请求失败: ${response.status} ${response.statusText}\n${errorText}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let generatedImages = [];
+      let currentEvent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          
+          if (trimmedLine.startsWith('event:')) {
+            currentEvent = trimmedLine.substring(6).trim();
+          }
+          
+          if (trimmedLine.startsWith('data:')) {
+            const dataStr = trimmedLine.substring(5).trim();
+            
+            if (dataStr === '[DONE]') {
+              break;
+            }
+            
+            if (dataStr && currentEvent === 'image_generation.partial_succeeded') {
+              try {
+                const data = JSON.parse(dataStr);
+                if (data && data.url) {
+                  generatedImages.push(data.url);
+                }
+              } catch (e) {
+                console.error('解析数据失败:', e);
+              }
+            }
+          }
+        }
+      }
+
+      if (generatedImages.length > 0) {
+        setResults(generatedImages);
+        markPromptAsUsed(randomPrompt.id);
+        saveGenerationRecord(generatedImages, `随机生成（ID: ${randomPrompt.id}）`, '', 3);
+      } else {
+        throw new Error('API响应格式错误，未获取到生成的图片');
+      }
+    } catch (err) {
+      setError(`生成图片失败: ${err.message}`);
+      console.error('Error generating images:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const generateImages = async () => {
@@ -227,6 +358,7 @@ function App({ requireAuth }) {
 
       if (generatedImages.length > 0) {
         setResults(generatedImages);
+        saveGenerationRecord(generatedImages, selectedPrompt.name, selectedScene, imageCount);
       } else {
         throw new Error('API响应格式错误，未获取到生成的图片');
       }
@@ -254,7 +386,7 @@ function App({ requireAuth }) {
           <>
             <div className="user-info">
               <span className="user-phone">{user.phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')}</span>
-              <span className="user-points-display">💰 {user.points} 积分</span>
+              <span className="user-points-display">💰 {user.points || 0} 积分</span>
             </div>
             <button className="dashboard-btn" onClick={() => navigate('/dashboard')}>用户中心</button>
             <button className="logout-btn" onClick={logout}>退出</button>
@@ -516,13 +648,27 @@ function App({ requireAuth }) {
               </div>
             </div>
 
-            <button 
-              className="generate-button"
-              onClick={generateImages}
-              disabled={loading}
-            >
-              {loading ? '生成中...' : '开始生成'}
-            </button>
+            <div className="button-group">
+              <button 
+                className="generate-button"
+                onClick={generateImages}
+                disabled={loading}
+              >
+                {loading ? '生成中...' : '开始生成'}
+              </button>
+              
+              <button 
+                className="random-generate-button"
+                onClick={randomGenerate}
+                disabled={loading}
+              >
+                🎲 随便来三张
+              </button>
+            </div>
+            
+            <div className="expiry-notice">
+              ⏰ 生成结果保存24小时，请及时下载
+            </div>
 
             {error && <div className="error-message">{error}</div>}
           </div>
@@ -533,6 +679,35 @@ function App({ requireAuth }) {
       {results.length > 0 && (
         <section className="results-section">
           <h2 className="section-title">生成结果</h2>
+          <div className="expiry-notice results-notice">
+            ⏰ 生成结果保存24小时，过期后将自动删除，请及时下载
+          </div>
+          <div className="results-actions">
+            <button 
+              className="download-all-results-btn"
+              onClick={async () => {
+                for (let i = 0; i < results.length; i++) {
+                  try {
+                    const response = await fetch(results[i]);
+                    const blob = await response.blob();
+                    const blobUrl = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = `synthia_${Date.now()}_${i + 1}.jpg`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(blobUrl);
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                  } catch (error) {
+                    window.open(results[i], '_blank');
+                  }
+                }
+              }}
+            >
+              📦 打包下载全部
+            </button>
+          </div>
           <div className="results-grid">
             {results.map((result, index) => (
               <div key={index} className="result-card">
@@ -541,6 +716,27 @@ function App({ requireAuth }) {
                   alt={`生成结果 ${index + 1}`} 
                   className="result-image"
                 />
+                <button 
+                  className="download-result-btn"
+                  onClick={async () => {
+                    try {
+                      const response = await fetch(result);
+                      const blob = await response.blob();
+                      const blobUrl = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = blobUrl;
+                      a.download = `synthia_${Date.now()}_${index + 1}.jpg`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      window.URL.revokeObjectURL(blobUrl);
+                    } catch (error) {
+                      window.open(result, '_blank');
+                    }
+                  }}
+                >
+                  下载图片
+                </button>
               </div>
             ))}
           </div>

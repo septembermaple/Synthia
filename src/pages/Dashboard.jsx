@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 function Dashboard() {
-  const { user, logout, updatePassword, addPoints, getTransactions } = useAuth();
+  const { user, logout, updatePassword, addPoints, getTransactions, getGenerationRecords, deleteGenerationRecord } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -11,8 +11,49 @@ function Dashboard() {
   const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
   const [rechargeAmount, setRechargeAmount] = useState(100);
   const [message, setMessage] = useState('');
+  const [generationRecords, setGenerationRecords] = useState([]);
 
   const transactions = getTransactions(50);
+
+  useEffect(() => {
+    if (activeTab === 'generations') {
+      setGenerationRecords(getGenerationRecords());
+    }
+  }, [activeTab]);
+
+  const formatRemainingTime = (ms) => {
+    const hours = Math.floor(ms / (1000 * 60 * 60));
+    const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+    if (hours > 0) {
+      return `${hours}小时${minutes}分钟`;
+    }
+    return `${minutes}分钟`;
+  };
+
+  const downloadImage = async (url, index) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `synthia_${Date.now()}_${index + 1}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error('下载失败:', error);
+      window.open(url, '_blank');
+    }
+  };
+
+  const downloadAllImages = async (record) => {
+    for (let i = 0; i < record.images.length; i++) {
+      await downloadImage(record.images[i], i);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  };
 
   const handlePasswordUpdate = () => {
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
@@ -92,6 +133,12 @@ function Dashboard() {
               onClick={() => setActiveTab('history')}
             >
               📝 消费记录
+            </button>
+            <button
+              className={`menu-item ${activeTab === 'generations' ? 'active' : ''}`}
+              onClick={() => setActiveTab('generations')}
+            >
+              🖼️ 生成历史
             </button>
             <button className="menu-item logout" onClick={logout}>
               🚪 退出登录
@@ -252,6 +299,67 @@ function Dashboard() {
                 ))}
                 {transactions.length === 0 && (
                   <div className="empty-state">暂无记录</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'generations' && (
+            <div className="generations-section">
+              <h2>生成历史</h2>
+              <div className="expiry-warning">
+                ⏰ 生成结果保存24小时，过期后将自动删除，请及时下载
+              </div>
+              <div className="generations-list">
+                {generationRecords.map(record => (
+                  <div key={record.id} className="generation-record">
+                    <div className="record-header">
+                      <div className="record-info">
+                        <span className="record-prompt">{record.prompt}</span>
+                        {record.scene && <span className="record-scene">{record.scene}</span>}
+                        <span className="record-count">{record.imageCount}张图片</span>
+                      </div>
+                      <div className="record-time">
+                        <div className="record-created">{new Date(record.createdAt).toLocaleString()}</div>
+                        <div className="record-expires">
+                          剩余时间: {formatRemainingTime(record.remainingTime)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="record-images">
+                      {record.images.map((img, idx) => (
+                        <div key={idx} className="record-image-wrapper">
+                          <img src={img} alt={`生成图片 ${idx + 1}`} className="record-image" />
+                          <button 
+                            className="download-single-btn"
+                            onClick={() => downloadImage(img, idx)}
+                          >
+                            下载
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="record-actions">
+                      <button 
+                        className="download-all-btn"
+                        onClick={() => downloadAllImages(record)}
+                      >
+                        📦 打包下载全部
+                      </button>
+                      <button 
+                        className="delete-record-btn"
+                        onClick={() => {
+                          deleteGenerationRecord(record.id);
+                          setGenerationRecords(getGenerationRecords());
+                        }}
+                      >
+                        🗑️ 删除记录
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {generationRecords.length === 0 && (
+                  <div className="empty-state">暂无生成记录</div>
                 )}
               </div>
             </div>
