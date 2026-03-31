@@ -1,11 +1,15 @@
 name = "synthia-api"
 main = "src/index.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "synthia-db"
-database_id = "your-database-id-here"
+database_id = "551bbb9a-c286-4c9a-b822-3f45fc86a372"
 
 [vars]
 ENVIRONMENT = "production"
+
+[observability]
+enabled = true

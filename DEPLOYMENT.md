@@ -3,7 +3,7 @@
 ## 📋 部署前准备
 
 1. 注册 [Cloudflare](https://dash.cloudflare.com/) 账号
-2. 安装 Node.js (v16+)
+2. 安装 Node.js (v18+)
 3. 安装 Wrangler CLI
 
 ```bash
@@ -18,10 +18,11 @@ npm install -g wrangler
 wrangler login
 ```
 
-### 2. 创建 D1 数据库
+### 2. 安装依赖并创建 D1 数据库
 
 ```bash
 cd api
+npm install
 npm run db:create
 ```
 

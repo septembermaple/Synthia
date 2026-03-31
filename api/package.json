@@ -7,11 +7,11 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:create": "wrangler d1 create synthia-db",
-    "db:migrate": "wrangler d1 execute synthia-db --file=./schema.sql",
+    "db:migrate": "wrangler d1 execute synthia-db --remote --file=./schema.sql",
     "db:migrate:local": "wrangler d1 execute synthia-db --local --file=./schema.sql"
   },
   "dependencies": {},
   "devDependencies": {
-    "wrangler": "^3.0.0"
+    "wrangler": "^4.0.0"
   }
 }
