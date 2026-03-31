@@ -1,8 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import config from '../config';
+import api from '../services/api';
 
 const AuthContext = createContext(null);
 
 const initializeTestAccounts = () => {
+  if (config.useAPI) return;
+  
   const savedUsers = JSON.parse(localStorage.getItem('synthia_users') || '[]');
   
   const testAccounts = [
@@ -31,7 +35,7 @@ export const AuthProvider = ({ children }) => {
     if (savedUser) {
       let userData = JSON.parse(savedUser);
       
-      if (userData.points === undefined) {
+      if (!config.useAPI && userData.points === undefined) {
         const savedUsers = JSON.parse(localStorage.getItem('synthia_users') || '[]');
         const existingUser = savedUsers.find(u => u.id === userData.id);
         
@@ -50,11 +54,22 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const sendVerificationCode = async (phone) => {
+    if (config.useAPI) {
+      return { success: true, message: '验证码已发送' };
+    }
     await new Promise(resolve => setTimeout(resolve, 1000));
     return { success: true, message: '验证码已发送' };
   };
 
   const login = async (phone, code) => {
+    if (config.useAPI) {
+      const data = await api.login(phone, code);
+      if (data.user) {
+        setUser(data.user);
+      }
+      return data;
+    }
+
     const savedUsers = JSON.parse(localStorage.getItem('synthia_users') || '[]');
     let existingUser = savedUsers.find(u => u.phone === phone);
     let isNewUser = false;
@@ -91,6 +106,14 @@ export const AuthProvider = ({ children }) => {
   };
 
   const loginWithPassword = async (phone, password) => {
+    if (config.useAPI) {
+      const data = await api.loginWithPassword(phone, password);
+      if (data.success && data.user) {
+        setUser(data.user);
+      }
+      return data;
+    }
+
     const savedUsers = JSON.parse(localStorage.getItem('synthia_users') || '[]');
     const existingUser = savedUsers.find(u => u.phone === phone);
     
@@ -121,6 +144,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   const checkUserExists = (phone) => {
+    if (config.useAPI) {
+      return { exists: false, hasPassword: false };
+    }
     const savedUsers = JSON.parse(localStorage.getItem('synthia_users') || '[]');
     const existingUser = savedUsers.find(u => u.phone === phone);
     return {
@@ -136,6 +162,9 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     setUser(null);
     localStorage.removeItem('synthia_user');
+    if (config.useAPI) {
+      api.logout();
+    }
   };
 
   const updatePassword = (oldPassword, newPassword) => {
@@ -149,18 +178,30 @@ export const AuthProvider = ({ children }) => {
     setUser(updatedUser);
     localStorage.setItem('synthia_user', JSON.stringify(updatedUser));
     
-    const savedUsers = JSON.parse(localStorage.getItem('synthia_users') || '[]');
-    const userIndex = savedUsers.findIndex(u => u.id === user.id);
-    if (userIndex !== -1) {
-      savedUsers[userIndex] = updatedUser;
-      localStorage.setItem('synthia_users', JSON.stringify(savedUsers));
+    if (!config.useAPI) {
+      const savedUsers = JSON.parse(localStorage.getItem('synthia_users') || '[]');
+      const userIndex = savedUsers.findIndex(u => u.id === user.id);
+      if (userIndex !== -1) {
+        savedUsers[userIndex] = updatedUser;
+        localStorage.setItem('synthia_users', JSON.stringify(savedUsers));
+      }
+    } else {
+      api.updatePassword(oldPassword, newPassword);
     }
     
     return { success: true, message: '密码修改成功' };
   };
 
-  const addPoints = (amount, description) => {
+  const addPoints = async (amount, description) => {
     if (!user) return { success: false, message: '未登录' };
+    
+    if (config.useAPI) {
+      const result = await api.addPoints(amount, description);
+      if (result.success) {
+        setUser({ ...user, points: result.points });
+      }
+      return result;
+    }
     
     const newPoints = user.points + amount;
     const updatedUser = { ...user, points: newPoints };
@@ -173,17 +214,24 @@ export const AuthProvider = ({ children }) => {
       savedUsers[userIndex] = updatedUser;
       localStorage.setItem('synthia_users', JSON.stringify(savedUsers));
     }
-    
     addTransaction(amount, '充值', description);
     
     return { success: true, message: `充值成功，当前积分：${newPoints}` };
   };
 
-  const consumePoints = (amount, description) => {
+  const consumePoints = async (amount, description) => {
     if (!user) return { success: false, message: '未登录' };
     
     if (user.points < amount) {
       return { success: false, message: '积分不足' };
+    }
+    
+    if (config.useAPI) {
+      const result = await api.consumePoints(amount, description);
+      if (result.success) {
+        setUser({ ...user, points: result.points });
+      }
+      return result;
     }
     
     const newPoints = user.points - amount;
@@ -197,7 +245,6 @@ export const AuthProvider = ({ children }) => {
       savedUsers[userIndex] = updatedUser;
       localStorage.setItem('synthia_users', JSON.stringify(savedUsers));
     }
-    
     addTransaction(-amount, '消费', description);
     
     return { success: true, message: `消费成功，剩余积分：${newPoints}` };
@@ -218,14 +265,23 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('synthia_transactions', JSON.stringify(transactions));
   };
 
-  const getTransactions = (limit = 20) => {
+  const getTransactions = async (limit = 20) => {
     if (!user) return [];
+    
+    if (config.useAPI) {
+      return await api.getTransactions(limit);
+    }
+    
     const transactions = JSON.parse(localStorage.getItem('synthia_transactions') || '[]');
     return transactions.filter(t => t.userId === user.id).slice(0, limit);
   };
 
-  const saveGenerationRecord = (images, prompt, scene, imageCount) => {
+  const saveGenerationRecord = async (images, prompt, scene, imageCount) => {
     if (!user) return;
+    
+    if (config.useAPI) {
+      return await api.saveGeneration(images, prompt, scene, imageCount);
+    }
     
     const records = JSON.parse(localStorage.getItem('synthia_generations') || '[]');
     const record = {
@@ -246,8 +302,13 @@ export const AuthProvider = ({ children }) => {
     return record;
   };
 
-  const getGenerationRecords = () => {
+  const getGenerationRecords = async () => {
     if (!user) return [];
+    
+    if (config.useAPI) {
+      return await api.getGenerations();
+    }
+    
     const records = JSON.parse(localStorage.getItem('synthia_generations') || '[]');
     const validRecords = records
       .filter(r => r.userId === user.id && new Date(r.expiresAt) > new Date())
@@ -266,13 +327,23 @@ export const AuthProvider = ({ children }) => {
 
   const deleteGenerationRecord = (recordId) => {
     if (!user) return;
+    
+    if (config.useAPI) {
+      return;
+    }
+    
     const records = JSON.parse(localStorage.getItem('synthia_generations') || '[]');
     const filteredRecords = records.filter(r => r.id !== recordId);
     localStorage.setItem('synthia_generations', JSON.stringify(filteredRecords));
   };
 
-  const markPromptAsUsed = (promptId) => {
+  const markPromptAsUsed = async (promptId) => {
     if (!user) return;
+    
+    if (config.useAPI) {
+      return await api.markPromptUsed(promptId);
+    }
+    
     const usedPrompts = JSON.parse(localStorage.getItem('synthia_used_prompts') || '{}');
     if (!usedPrompts[user.id]) {
       usedPrompts[user.id] = [];
@@ -283,8 +354,13 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const getUsedPromptIds = () => {
+  const getUsedPromptIds = async () => {
     if (!user) return [];
+    
+    if (config.useAPI) {
+      return await api.getUsedPrompts();
+    }
+    
     const usedPrompts = JSON.parse(localStorage.getItem('synthia_used_prompts') || '{}');
     return usedPrompts[user.id] || [];
   };

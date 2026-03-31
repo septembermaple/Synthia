@@ -130,7 +130,7 @@ function App({ requireAuth }) {
 
     const randomPrompt = availablePrompts[Math.floor(Math.random() * availablePrompts.length)];
 
-    const consumeResult = consumePoints(pointsRequired, `随机生成3张图片（ID: ${randomPrompt.id}）`);
+    const consumeResult = await consumePoints(pointsRequired, `随机生成3张图片（ID: ${randomPrompt.id}）`);
     if (!consumeResult.success) {
       setError(consumeResult.message);
       return;
@@ -220,8 +220,8 @@ function App({ requireAuth }) {
 
       if (generatedImages.length > 0) {
         setResults(generatedImages);
-        markPromptAsUsed(randomPrompt.id);
-        saveGenerationRecord(generatedImages, `随机生成（ID: ${randomPrompt.id}）`, '', 3);
+        await markPromptAsUsed(randomPrompt.id);
+        await saveGenerationRecord(generatedImages, `随机生成（ID: ${randomPrompt.id}）`, '', 3);
       } else {
         throw new Error('API响应格式错误，未获取到生成的图片');
       }
@@ -255,7 +255,7 @@ function App({ requireAuth }) {
       return;
     }
 
-    const consumeResult = consumePoints(pointsRequired, `生成${imageCount}张${selectedPrompt.name}风格图片`);
+    const consumeResult = await consumePoints(pointsRequired, `生成${imageCount}张${selectedPrompt.name}风格图片`);
     if (!consumeResult.success) {
       setError(consumeResult.message);
       return;
@@ -358,7 +358,7 @@ function App({ requireAuth }) {
 
       if (generatedImages.length > 0) {
         setResults(generatedImages);
-        saveGenerationRecord(generatedImages, selectedPrompt.name, selectedScene, imageCount);
+        await saveGenerationRecord(generatedImages, selectedPrompt.name, selectedScene, imageCount);
       } else {
         throw new Error('API响应格式错误，未获取到生成的图片');
       }

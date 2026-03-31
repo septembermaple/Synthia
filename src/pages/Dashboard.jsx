@@ -75,8 +75,8 @@ function Dashboard() {
     }
   };
 
-  const handleRecharge = () => {
-    const result = addPoints(rechargeAmount, `充值${rechargeAmount}积分`);
+  const handleRecharge = async () => {
+    const result = await addPoints(rechargeAmount, `充值${rechargeAmount}积分`);
     if (result.success) {
       setMessage(result.message);
       setShowRechargeModal(false);
