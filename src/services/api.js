@@ -5,25 +5,13 @@ class ApiService {
     this.baseURL = API_BASE_URL;
   }
 
-  getHeaders() {
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-    
-    const userId = localStorage.getItem('synthia_user_id');
-    if (userId) {
-      headers['X-User-Id'] = userId;
-    }
-    
-    return headers;
-  }
-
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
     const config = {
       ...options,
+      credentials: 'include',
       headers: {
-        ...this.getHeaders(),
+        'Content-Type': 'application/json',
         ...options.headers,
       },
     };
@@ -44,36 +32,23 @@ class ApiService {
   }
 
   async login(phone, code) {
-    const data = await this.request('/api/auth/login', {
+    return await this.request('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ phone, code }),
     });
-    
-    if (data.user) {
-      localStorage.setItem('synthia_user_id', data.user.id);
-      localStorage.setItem('synthia_user', JSON.stringify(data.user));
-    }
-    
-    return data;
   }
 
   async loginWithPassword(phone, password) {
-    const data = await this.request('/api/auth/login-password', {
+    return await this.request('/api/auth/login-password', {
       method: 'POST',
       body: JSON.stringify({ phone, password }),
     });
-    
-    if (data.success && data.user) {
-      localStorage.setItem('synthia_user_id', data.user.id);
-      localStorage.setItem('synthia_user', JSON.stringify(data.user));
-    }
-    
-    return data;
   }
 
   async logout() {
-    localStorage.removeItem('synthia_user_id');
-    localStorage.removeItem('synthia_user');
+    return await this.request('/api/auth/logout', {
+      method: 'POST',
+    });
   }
 
   async getCurrentUser() {
@@ -85,10 +60,6 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ oldPassword, newPassword }),
     });
-  }
-
-  async getBalance() {
-    return await this.request('/api/points/balance');
   }
 
   async addPoints(amount, description) {
@@ -117,12 +88,6 @@ class ApiService {
     return await this.request('/api/generations', {
       method: 'POST',
       body: JSON.stringify({ images, prompt, scene, imageCount }),
-    });
-  }
-
-  async cleanupGenerations() {
-    return await this.request('/api/generations/cleanup', {
-      method: 'POST',
     });
   }
 

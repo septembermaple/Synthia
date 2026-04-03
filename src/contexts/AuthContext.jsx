@@ -8,22 +8,16 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedUserId = localStorage.getItem('synthia_user_id');
-    if (savedUserId) {
-      api.getCurrentUser()
-        .then(userData => {
-          setUser(userData);
-        })
-        .catch(() => {
-          localStorage.removeItem('synthia_user_id');
-          localStorage.removeItem('synthia_user');
-        })
-        .finally(() => {
-          setLoading(false);
-        });
-    } else {
-      setLoading(false);
-    }
+    api.getCurrentUser()
+      .then(userData => {
+        setUser(userData);
+      })
+      .catch(() => {
+        setUser(null);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, []);
 
   const sendVerificationCode = async (phone) => {
@@ -54,19 +48,16 @@ export const AuthProvider = ({ children }) => {
     return login(phone, code);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await api.logout();
     setUser(null);
-    localStorage.removeItem('synthia_user_id');
-    localStorage.removeItem('synthia_user');
-    api.logout();
   };
 
   const updatePassword = async (oldPassword, newPassword) => {
     if (!user) return { success: false, message: '未登录' };
     
     try {
-      const result = await api.updatePassword(oldPassword, newPassword);
-      return result;
+      return await api.updatePassword(oldPassword, newPassword);
     } catch (error) {
       return { success: false, message: error.message || '密码修改失败' };
     }
@@ -78,9 +69,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const result = await api.addPoints(amount, description);
       if (result.success) {
-        const updatedUser = { ...user, points: result.points };
-        setUser(updatedUser);
-        localStorage.setItem('synthia_user', JSON.stringify(updatedUser));
+        setUser({ ...user, points: result.points });
       }
       return result;
     } catch (error) {
@@ -99,9 +88,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const result = await api.consumePoints(amount, description);
       if (result.success) {
-        const updatedUser = { ...user, points: result.points };
-        setUser(updatedUser);
-        localStorage.setItem('synthia_user', JSON.stringify(updatedUser));
+        setUser({ ...user, points: result.points });
       }
       return result;
     } catch (error) {
