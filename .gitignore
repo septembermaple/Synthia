@@ -28,3 +28,6 @@ dist-ssr
 .env.development.local
 .env.test.local
 .env.production.local
+api/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/8df686770f5663737a9f2f7a3a2e970bb252b69a50000954f2933db02e96a619.sqlite-shm
+api/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/8df686770f5663737a9f2f7a3a2e970bb252b69a50000954f2933db02e96a619.sqlite
+api/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/8df686770f5663737a9f2f7a3a2e970bb252b69a50000954f2933db02e96a619.sqlite-wal

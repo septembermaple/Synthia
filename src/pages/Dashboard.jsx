@@ -81,6 +81,8 @@ function Dashboard() {
       setMessage(result.message);
       setShowRechargeModal(false);
       setRechargeAmount(100);
+    } else {
+      setMessage(result.message || '充值失败');
     }
   };
 

@@ -196,11 +196,18 @@ export const AuthProvider = ({ children }) => {
     if (!user) return { success: false, message: '未登录' };
     
     if (config.useAPI) {
-      const result = await api.addPoints(amount, description);
-      if (result.success) {
-        setUser({ ...user, points: result.points });
+      try {
+        const result = await api.addPoints(amount, description);
+        if (result.success) {
+          const updatedUser = { ...user, points: result.points };
+          setUser(updatedUser);
+          localStorage.setItem('synthia_user', JSON.stringify(updatedUser));
+        }
+        return result;
+      } catch (error) {
+        console.error('充值失败:', error);
+        return { success: false, message: error.message || '充值失败' };
       }
-      return result;
     }
     
     const newPoints = user.points + amount;
@@ -227,11 +234,18 @@ export const AuthProvider = ({ children }) => {
     }
     
     if (config.useAPI) {
-      const result = await api.consumePoints(amount, description);
-      if (result.success) {
-        setUser({ ...user, points: result.points });
+      try {
+        const result = await api.consumePoints(amount, description);
+        if (result.success) {
+          const updatedUser = { ...user, points: result.points };
+          setUser(updatedUser);
+          localStorage.setItem('synthia_user', JSON.stringify(updatedUser));
+        }
+        return result;
+      } catch (error) {
+        console.error('消费失败:', error);
+        return { success: false, message: error.message || '消费失败' };
       }
-      return result;
     }
     
     const newPoints = user.points - amount;
