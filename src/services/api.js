@@ -126,6 +126,12 @@ class ApiService {
     });
   }
 
+  async deleteGeneration(recordId) {
+    return await this.request(`/api/generations/${recordId}`, {
+      method: 'DELETE',
+    });
+  }
+
   async getUsedPrompts() {
     return await this.request('/api/prompts/used');
   }

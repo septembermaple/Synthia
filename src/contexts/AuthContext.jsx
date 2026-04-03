@@ -339,11 +339,11 @@ export const AuthProvider = ({ children }) => {
     return validRecords;
   };
 
-  const deleteGenerationRecord = (recordId) => {
+  const deleteGenerationRecord = async (recordId) => {
     if (!user) return;
     
     if (config.useAPI) {
-      return;
+      return await api.deleteGeneration(recordId);
     }
     
     const records = JSON.parse(localStorage.getItem('synthia_generations') || '[]');

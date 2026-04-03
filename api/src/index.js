@@ -39,6 +39,8 @@ export default {
         response = await handleSaveGeneration(request, env);
       } else if (path === '/api/generations/cleanup' && method === 'POST') {
         response = await handleCleanupGenerations(request, env);
+      } else if (path.startsWith('/api/generations/') && method === 'DELETE') {
+        response = await handleDeleteGeneration(request, env);
       } else if (path === '/api/prompts/used' && method === 'GET') {
         response = await handleGetUsedPrompts(request, env);
       } else if (path === '/api/prompts/mark-used' && method === 'POST') {
@@ -294,6 +296,26 @@ async function handleCleanupGenerations(request, env) {
     success: true, 
     deletedCount: result.meta.changes 
   });
+}
+
+async function handleDeleteGeneration(request, env) {
+  const userId = request.headers.get('X-User-Id');
+  const url = new URL(request.url);
+  const recordId = url.pathname.split('/').pop();
+
+  if (!userId) {
+    return jsonResponse({ error: '未登录' }, 401);
+  }
+
+  const result = await env.DB.prepare(
+    'DELETE FROM generations WHERE id = ? AND user_id = ?'
+  ).bind(recordId, userId).run();
+
+  if (result.meta.changes === 0) {
+    return jsonResponse({ error: '记录不存在或无权删除' }, 404);
+  }
+
+  return jsonResponse({ success: true });
 }
 
 async function handleGetUsedPrompts(request, env) {

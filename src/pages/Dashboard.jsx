@@ -12,12 +12,23 @@ function Dashboard() {
   const [rechargeAmount, setRechargeAmount] = useState(100);
   const [message, setMessage] = useState('');
   const [generationRecords, setGenerationRecords] = useState([]);
+  const [transactions, setTransactions] = useState([]);
 
-  const transactions = getTransactions(50);
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      const data = await getTransactions(50);
+      setTransactions(data || []);
+    };
+    fetchTransactions();
+  }, [user]);
 
   useEffect(() => {
     if (activeTab === 'generations') {
-      setGenerationRecords(getGenerationRecords());
+      const fetchRecords = async () => {
+        const data = await getGenerationRecords();
+        setGenerationRecords(data || []);
+      };
+      fetchRecords();
     }
   }, [activeTab]);
 
@@ -350,9 +361,10 @@ function Dashboard() {
                       </button>
                       <button 
                         className="delete-record-btn"
-                        onClick={() => {
-                          deleteGenerationRecord(record.id);
-                          setGenerationRecords(getGenerationRecords());
+                        onClick={async () => {
+                          await deleteGenerationRecord(record.id);
+                          const data = await getGenerationRecords();
+                          setGenerationRecords(data || []);
                         }}
                       >
                         🗑️ 删除记录
