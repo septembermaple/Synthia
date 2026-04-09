@@ -24,10 +24,6 @@ export default {
         'Content-Type': 'application/json',
         ...corsHeaders,
       };
-      
-      if (result.cookie) {
-        headers['Set-Cookie'] = result.cookie;
-      }
 
       return new Response(JSON.stringify(result.data), {
         status: result.status || 200,
@@ -82,18 +78,15 @@ async function handleRequest(request, env, path, method) {
 }
 
 function getUserId(request) {
-  const cookie = request.headers.get('Cookie') || '';
-  const match = cookie.match(/synthia_user_id=([^;]+)/);
-  return match ? match[1] : null;
+  const authHeader = request.headers.get('Authorization') || '';
+  if (authHeader.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+  return null;
 }
 
-function setCookie(userId) {
-  const maxAge = 30 * 24 * 60 * 60;
-  return `synthia_user_id=${userId}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=None; Secure`;
-}
-
-function clearCookie() {
-  return 'synthia_user_id=; Path=/; Max-Age=0; HttpOnly; SameSite=None; Secure';
+function generateToken(userId) {
+  return String(userId);
 }
 
 async function handleLogin(request, env) {
@@ -119,6 +112,8 @@ async function handleLogin(request, env) {
     ).bind(result.meta.last_row_id).first();
   }
 
+  const token = generateToken(user.id);
+
   return {
     data: {
       user: {
@@ -127,10 +122,10 @@ async function handleLogin(request, env) {
         points: user.points,
         createdAt: user.created_at
       },
+      token,
       isNewUser,
       hasPassword: !!user.password
-    },
-    cookie: setCookie(user.id)
+    }
   };
 }
 
@@ -153,6 +148,8 @@ async function handleLoginWithPassword(request, env) {
     return { data: { error: '密码错误' }, status: 400 };
   }
 
+  const token = generateToken(user.id);
+
   return {
     data: {
       success: true,
@@ -161,16 +158,15 @@ async function handleLoginWithPassword(request, env) {
         phone: user.phone,
         points: user.points,
         createdAt: user.created_at
-      }
-    },
-    cookie: setCookie(user.id)
+      },
+      token
+    }
   };
 }
 
 function handleLogout() {
   return {
-    data: { success: true },
-    cookie: clearCookie()
+    data: { success: true }
   };
 }
 

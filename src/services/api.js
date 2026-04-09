@@ -1,12 +1,28 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 
+const TOKEN_KEY = 'synthia_token';
+
 class ApiService {
   constructor() {
     this.baseURL = API_BASE_URL;
   }
 
+  getToken() {
+    return localStorage.getItem(TOKEN_KEY);
+  }
+
+  setToken(token) {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  }
+
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
+    const token = this.getToken();
+    
     const config = {
       ...options,
       credentials: 'include',
@@ -15,6 +31,10 @@ class ApiService {
         ...options.headers,
       },
     };
+
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
 
     try {
       const response = await fetch(url, config);
@@ -32,20 +52,29 @@ class ApiService {
   }
 
   async login(phone, code) {
-    return await this.request('/api/auth/login', {
+    const data = await this.request('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ phone, code }),
     });
+    if (data.token) {
+      this.setToken(data.token);
+    }
+    return data;
   }
 
   async loginWithPassword(phone, password) {
-    return await this.request('/api/auth/login-password', {
+    const data = await this.request('/api/auth/login-password', {
       method: 'POST',
       body: JSON.stringify({ phone, password }),
     });
+    if (data.token) {
+      this.setToken(data.token);
+    }
+    return data;
   }
 
   async logout() {
+    this.setToken(null);
     return await this.request('/api/auth/logout', {
       method: 'POST',
     });
