@@ -46,7 +46,6 @@ class ApiService {
 
       return data;
     } catch (error) {
-      console.error('API Error:', error);
       throw error;
     }
   }
@@ -135,6 +134,70 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ promptId }),
     });
+  }
+
+  async generateImages(prompt, imageBase64, imageCount, onImageGenerated) {
+    const url = `${this.baseURL}/api/images/generate`;
+    const token = this.getToken();
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ prompt, imageBase64, imageCount })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || '生成失败');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let generatedImages = [];
+    let currentEvent = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n');
+      
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        
+        if (trimmedLine.startsWith('event:')) {
+          currentEvent = trimmedLine.substring(6).trim();
+        }
+        
+        if (trimmedLine.startsWith('data:')) {
+          const dataStr = trimmedLine.substring(5).trim();
+          
+          if (dataStr === '[DONE]') {
+            break;
+          }
+          
+          if (dataStr && currentEvent === 'image_generation.partial_succeeded') {
+            try {
+              const data = JSON.parse(dataStr);
+              if (data && data.url) {
+                generatedImages.push(data.url);
+                if (onImageGenerated) {
+                  onImageGenerated(data.url);
+                }
+              }
+            } catch (e) {
+              console.error('解析数据失败:', e);
+            }
+          }
+        }
+      }
+    }
+
+    return generatedImages;
   }
 }
 

@@ -17,6 +17,10 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    if (path === '/api/images/generate' && method === 'POST') {
+      return await handleImageGeneration(request, env, corsHeaders);
+    }
+
     try {
       const result = await handleRequest(request, env, path, method);
       
@@ -40,6 +44,73 @@ export default {
     }
   }
 };
+
+async function handleImageGeneration(request, env, corsHeaders) {
+  const userId = getUserId(request);
+  if (!userId) {
+    return new Response(JSON.stringify({ error: '未登录' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders }
+    });
+  }
+
+  const apiKey = env.DOUBAO_API_KEY;
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'API密钥未配置' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders }
+    });
+  }
+
+  try {
+    const body = await request.json();
+    const { prompt, imageBase64, imageCount } = body;
+
+    const requestData = {
+      model: 'doubao-seedream-4-0-250828',
+      prompt: prompt,
+      image: [imageBase64],
+      sequential_image_generation: 'auto',
+      sequential_image_generation_options: {
+        max_images: imageCount || 1
+      },
+      response_format: 'url',
+      size: '2K',
+      stream: true,
+      watermark: true
+    };
+
+    const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestData)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return new Response(JSON.stringify({ error: `API请求失败: ${response.status}` }), {
+        status: response.status,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
+
+    return new Response(response.body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        ...corsHeaders
+      }
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders }
+    });
+  }
+}
 
 async function handleRequest(request, env, path, method) {
   if (path === '/api/auth/login' && method === 'POST') {

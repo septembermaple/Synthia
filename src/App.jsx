@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { promptLibrary } from './data/promptLibrary';
+import api from './services/api';
 
 function App({ requireAuth }) {
   const { user, logout, consumePoints, saveGenerationRecord, markPromptAsUsed, getUsedPromptIds } = useAuth();
@@ -141,89 +142,22 @@ function App({ requireAuth }) {
     setResults([]);
 
     try {
-      const API_KEY = import.meta.env.VITE_DOUBAO_API_KEY;
-      const API_URL = 'https://ark.cn-beijing.volces.com/api/v3/images/generations';
-
-      if (!API_KEY) {
-        throw new Error('请在.env文件中设置VITE_DOUBAO_API_KEY');
-      }
-
       const imageBase64 = await imageToBase64(images[0].file);
 
-      const requestData = {
-        model: 'doubao-seedream-4-0-250828',
-        prompt: randomPrompt.description,
-        image: [imageBase64],
-        sequential_image_generation: 'auto',
-        sequential_image_generation_options: {
-          max_images: 3
-        },
-        response_format: 'url',
-        size: '2K',
-        stream: true,
-        watermark: true
-      };
-
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${API_KEY}`
-        },
-        body: JSON.stringify(requestData)
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API请求失败: ${response.status} ${response.statusText}\n${errorText}`);
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let generatedImages = [];
-      let currentEvent = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-        
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          
-          if (trimmedLine.startsWith('event:')) {
-            currentEvent = trimmedLine.substring(6).trim();
-          }
-          
-          if (trimmedLine.startsWith('data:')) {
-            const dataStr = trimmedLine.substring(5).trim();
-            
-            if (dataStr === '[DONE]') {
-              break;
-            }
-            
-            if (dataStr && currentEvent === 'image_generation.partial_succeeded') {
-              try {
-                const data = JSON.parse(dataStr);
-                if (data && data.url) {
-                  generatedImages.push(data.url);
-                }
-              } catch (e) {
-                console.error('解析数据失败:', e);
-              }
-            }
-          }
+      const generatedImages = await api.generateImages(
+        randomPrompt.description,
+        imageBase64,
+        3,
+        (url) => {
+          setResults(prev => [...prev, url]);
         }
-      }
+      );
 
       if (generatedImages.length > 0) {
-        setResults(generatedImages);
         await markPromptAsUsed(randomPrompt.id);
         await saveGenerationRecord(generatedImages, `随机生成（ID: ${randomPrompt.id}）`, '', 3);
       } else {
-        throw new Error('API响应格式错误，未获取到生成的图片');
+        throw new Error('未获取到生成的图片');
       }
     } catch (err) {
       setError(`生成图片失败: ${err.message}`);
@@ -266,13 +200,6 @@ function App({ requireAuth }) {
     setResults([]);
 
     try {
-      const API_KEY = import.meta.env.VITE_DOUBAO_API_KEY;
-      const API_URL = 'https://ark.cn-beijing.volces.com/api/v3/images/generations';
-
-      if (!API_KEY) {
-        throw new Error('请在.env文件中设置VITE_DOUBAO_API_KEY');
-      }
-
       const imageBase64 = await imageToBase64(images[0].file);
 
       let finalPrompt = selectedPrompt.description;
@@ -288,79 +215,19 @@ function App({ requireAuth }) {
         }
       }
 
-      const requestData = {
-        model: 'doubao-seedream-4-0-250828',
-        prompt: finalPrompt,
-        image: [imageBase64],
-        sequential_image_generation: 'auto',
-        sequential_image_generation_options: {
-          max_images: imageCount
-        },
-        response_format: 'url',
-        size: '2K',
-        stream: true,
-        watermark: true
-      };
-
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${API_KEY}`
-        },
-        body: JSON.stringify(requestData)
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API请求失败: ${response.status} ${response.statusText}\n${errorText}`);
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let generatedImages = [];
-      let currentEvent = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-        
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          
-          if (trimmedLine.startsWith('event:')) {
-            currentEvent = trimmedLine.substring(6).trim();
-          }
-          
-          if (trimmedLine.startsWith('data:')) {
-            const dataStr = trimmedLine.substring(5).trim();
-            
-            if (dataStr === '[DONE]') {
-              break;
-            }
-            
-            if (dataStr && currentEvent === 'image_generation.partial_succeeded') {
-              try {
-                const data = JSON.parse(dataStr);
-                if (data && data.url) {
-                  generatedImages.push(data.url);
-                }
-              } catch (e) {
-                console.error('解析数据失败:', e);
-              }
-            }
-          }
+      const generatedImages = await api.generateImages(
+        finalPrompt,
+        imageBase64,
+        imageCount,
+        (url) => {
+          setResults(prev => [...prev, url]);
         }
-      }
+      );
 
       if (generatedImages.length > 0) {
-        setResults(generatedImages);
         await saveGenerationRecord(generatedImages, selectedPrompt.name, selectedScene, imageCount);
       } else {
-        throw new Error('API响应格式错误，未获取到生成的图片');
+        throw new Error('未获取到生成的图片');
       }
     } catch (err) {
       setError(`生成图片失败: ${err.message}`);

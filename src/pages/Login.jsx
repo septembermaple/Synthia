@@ -53,8 +53,6 @@ function Login() {
   const handleCodeLogin = async (e) => {
     e.preventDefault();
     
-    console.log('VITE_API_URL:', import.meta.env.VITE_API_URL);
-    
     if (!phone || phone.length !== 11) {
       setError('请输入正确的手机号');
       return;
@@ -86,8 +84,6 @@ function Login() {
 
   const handlePasswordLogin = async (e) => {
     e.preventDefault();
-    
-    console.log('VITE_API_URL:', import.meta.env.VITE_API_URL);
     
     if (!phone || phone.length !== 11) {
       setError('请输入正确的手机号');
