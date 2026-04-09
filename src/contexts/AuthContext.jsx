@@ -6,6 +6,7 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [prompts, setPrompts] = useState([]);
 
   useEffect(() => {
     api.getCurrentUser()
@@ -17,6 +18,16 @@ export const AuthProvider = ({ children }) => {
       })
       .finally(() => {
         setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    api.getPrompts()
+      .then(data => {
+        setPrompts(data);
+      })
+      .catch(() => {
+        setPrompts([]);
       });
   }, []);
 
@@ -73,7 +84,6 @@ export const AuthProvider = ({ children }) => {
       }
       return result;
     } catch (error) {
-      console.error('充值失败:', error);
       return { success: false, message: error.message || '充值失败' };
     }
   };
@@ -92,7 +102,6 @@ export const AuthProvider = ({ children }) => {
       }
       return result;
     } catch (error) {
-      console.error('消费失败:', error);
       return { success: false, message: error.message || '消费失败' };
     }
   };
@@ -115,6 +124,10 @@ export const AuthProvider = ({ children }) => {
   const deleteGenerationRecord = async (recordId) => {
     if (!user) return;
     return await api.deleteGeneration(recordId);
+  };
+
+  const getPromptsList = () => {
+    return prompts;
   };
 
   const markPromptAsUsed = async (promptId) => {
@@ -144,6 +157,7 @@ export const AuthProvider = ({ children }) => {
       saveGenerationRecord,
       getGenerationRecords,
       deleteGenerationRecord,
+      getPromptsList,
       markPromptAsUsed,
       getUsedPromptIds
     }}>

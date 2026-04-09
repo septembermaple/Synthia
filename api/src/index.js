@@ -66,6 +66,11 @@ async function handleImageGeneration(request, env, corsHeaders) {
     const body = await request.json();
     const { prompt, imageBase64, imageCount } = body;
 
+    console.log('=== DEBUG: 图片生成请求参数 ===');
+    console.log('imageCount:', imageCount);
+    console.log('prompt length:', prompt?.length);
+    console.log('================================');
+
     const requestData = {
       model: 'doubao-seedream-4-0-250828',
       prompt: prompt,
@@ -77,8 +82,10 @@ async function handleImageGeneration(request, env, corsHeaders) {
       response_format: 'url',
       size: '2K',
       stream: true,
-      watermark: true
+      watermark: false
     };
+
+    console.log('🚀 发送的请求数据 full requestData：', requestData);
 
     const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/images/generations', {
       method: 'POST',
@@ -96,6 +103,8 @@ async function handleImageGeneration(request, env, corsHeaders) {
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
+
+    console.log('🚀 接收的响应数据 full response：', response);
 
     return new Response(response.body, {
       status: 200,
@@ -139,6 +148,8 @@ async function handleRequest(request, env, path, method) {
     return await handleCleanupGenerations(env);
   } else if (path.startsWith('/api/generations/') && method === 'DELETE') {
     return await handleDeleteGeneration(request, env);
+  } else if (path === '/api/prompts' && method === 'GET') {
+    return await handleGetPrompts(request, env);
   } else if (path === '/api/prompts/used' && method === 'GET') {
     return await handleGetUsedPrompts(request, env);
   } else if (path === '/api/prompts/mark-used' && method === 'POST') {
@@ -444,6 +455,14 @@ async function handleDeleteGeneration(request, env) {
   }
 
   return { data: { success: true } };
+}
+
+async function handleGetPrompts(request, env) {
+  const prompts = await env.DB.prepare(
+    'SELECT id, description, image_count FROM prompts WHERE is_active = 1 ORDER BY id'
+  ).all();
+
+  return { data: prompts.results };
 }
 
 async function handleGetUsedPrompts(request, env) {

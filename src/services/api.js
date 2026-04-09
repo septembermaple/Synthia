@@ -125,6 +125,10 @@ class ApiService {
     });
   }
 
+  async getPrompts() {
+    return await this.request('/api/prompts');
+  }
+
   async getUsedPrompts() {
     return await this.request('/api/prompts/used');
   }
@@ -190,7 +194,6 @@ class ApiService {
                 }
               }
             } catch (e) {
-              console.error('解析数据失败:', e);
             }
           }
         }

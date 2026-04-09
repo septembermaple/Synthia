@@ -207,6 +207,25 @@ CREATE TABLE used_prompts (
 );
 ```
 
+### prompts 表 - 提示词库
+
+```sql
+CREATE TABLE prompts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  description TEXT NOT NULL,            -- 提示词内容
+  image_count INTEGER DEFAULT 3,        -- 生成图片数量
+  is_active INTEGER DEFAULT 1,          -- 是否启用（1启用，0禁用）
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**说明**：
+- 提示词存储在数据库中，支持动态管理
+- `image_count` 字段指定该提示词生成多少张图片
+- `is_active` 字段控制提示词是否可用
+- "随便来三张"功能从该表获取提示词
+
 ---
 
 ## 环境变量

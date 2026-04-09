@@ -1,11 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
-import { promptLibrary } from './data/promptLibrary';
 import api from './services/api';
 
 function App({ requireAuth }) {
-  const { user, logout, consumePoints, saveGenerationRecord, markPromptAsUsed, getUsedPromptIds } = useAuth();
+  const { user, logout, consumePoints, saveGenerationRecord, markPromptAsUsed, getUsedPromptIds, getPromptsList } = useAuth();
   const navigate = useNavigate();
   const [images, setImages] = useState([]);
   const [selectedPrompt, setSelectedPrompt] = useState(null);
@@ -115,23 +114,22 @@ function App({ requireAuth }) {
       return;
     }
 
-    const pointsRequired = 30;
+    const promptsList = getPromptsList();
+    if (promptsList.length === 0) {
+      setError('暂无可用的提示词，请稍后再试');
+      return;
+    }
+
+    const prompt = promptsList[0];
+    const imageCount = Number(prompt.image_count) || 3;
+    const pointsRequired = imageCount * 10;
+
     if (user.points < pointsRequired) {
-      setError(`积分不足！随机生成需要${pointsRequired}积分，当前积分：${user.points}`);
+      setError(`积分不足！生成${imageCount}张图片需要${pointsRequired}积分，当前积分：${user.points}`);
       return;
     }
 
-    const usedPromptIds = getUsedPromptIds();
-    const availablePrompts = promptLibrary.filter(p => !usedPromptIds.includes(p.id));
-    
-    if (availablePrompts.length === 0) {
-      setError('您已体验完所有描述词，请联系管理员添加更多描述词');
-      return;
-    }
-
-    const randomPrompt = availablePrompts[Math.floor(Math.random() * availablePrompts.length)];
-
-    const consumeResult = await consumePoints(pointsRequired, `随机生成3张图片（ID: ${randomPrompt.id}）`);
+    const consumeResult = await consumePoints(pointsRequired, `随机生成${imageCount}张图片（ID: ${prompt.id}）`);
     if (!consumeResult.success) {
       setError(consumeResult.message);
       return;
@@ -143,25 +141,25 @@ function App({ requireAuth }) {
 
     try {
       const imageBase64 = await imageToBase64(images[0].file);
+      const finalPrompt = `（生成${imageCount}张图片）${prompt.description}`;
 
       const generatedImages = await api.generateImages(
-        randomPrompt.description,
+        finalPrompt,
         imageBase64,
-        3,
+        imageCount,
         (url) => {
           setResults(prev => [...prev, url]);
         }
       );
 
       if (generatedImages.length > 0) {
-        await markPromptAsUsed(randomPrompt.id);
-        await saveGenerationRecord(generatedImages, `随机生成（ID: ${randomPrompt.id}）`, '', 3);
+        await markPromptAsUsed(prompt.id);
+        await saveGenerationRecord(generatedImages, `随机生成（ID: ${prompt.id}）`, '', imageCount);
       } else {
         throw new Error('未获取到生成的图片');
       }
     } catch (err) {
       setError(`生成图片失败: ${err.message}`);
-      console.error('Error generating images:', err);
     } finally {
       setLoading(false);
     }
