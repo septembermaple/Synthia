@@ -477,11 +477,12 @@ body {
 }
 
 .results-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 2rem;
   max-width: 1400px;
   margin: 0 auto;
+  justify-content: flex-start;
 }
 
 .result-card {
@@ -490,6 +491,8 @@ body {
   overflow: hidden;
   box-shadow: var(--card-shadow);
   transition: all 0.3s ease;
+  width: 300px;
+  flex-shrink: 0;
 }
 
 .result-card:hover {

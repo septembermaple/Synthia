@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import JSZip from 'jszip';
 
 function Dashboard() {
   const { user, logout, updatePassword, addPoints, getTransactions, getGenerationRecords, deleteGenerationRecord } = useAuth();
@@ -32,7 +33,22 @@ function Dashboard() {
     }
   }, [activeTab]);
 
+  const formatTime = (timeStr) => {
+    if (!timeStr) return '-';
+    const date = new Date(timeStr);
+    if (isNaN(date.getTime())) return '-';
+    return date.toLocaleString('zh-CN');
+  };
+
+  const formatDate = (timeStr) => {
+    if (!timeStr) return '-';
+    const date = new Date(timeStr);
+    if (isNaN(date.getTime())) return '-';
+    return date.toLocaleDateString('zh-CN');
+  };
+
   const formatRemainingTime = (ms) => {
+    if (!ms || ms <= 0) return '已过期';
     const hours = Math.floor(ms / (1000 * 60 * 60));
     const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
     if (hours > 0) {
@@ -54,15 +70,40 @@ function Dashboard() {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(blobUrl);
     } catch (error) {
-      console.error('下载失败:', error);
       window.open(url, '_blank');
     }
   };
 
   const downloadAllImages = async (record) => {
-    for (let i = 0; i < record.images.length; i++) {
-      await downloadImage(record.images[i], i);
-      await new Promise(resolve => setTimeout(resolve, 500));
+    if (record.images.length === 1) {
+      await downloadImage(record.images[0], 0);
+      return;
+    }
+
+    try {
+      const zip = new JSZip();
+      const folder = zip.folder(`synthia_${Date.now()}`);
+      
+      for (let i = 0; i < record.images.length; i++) {
+        const response = await fetch(record.images[i]);
+        const blob = await response.blob();
+        folder.file(`image_${i + 1}.jpg`, blob);
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const blobUrl = window.URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `synthia_${Date.now()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      for (let i = 0; i < record.images.length; i++) {
+        await downloadImage(record.images[i], i);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
     }
   };
 
@@ -182,7 +223,7 @@ function Dashboard() {
                   <div className="stat-icon">📅</div>
                   <div className="stat-info">
                     <div className="stat-label">注册时间</div>
-                    <div className="stat-value">{new Date(user.createdAt).toLocaleDateString()}</div>
+                    <div className="stat-value">{formatDate(user.createdAt || user.created_at)}</div>
                   </div>
                 </div>
               </div>
@@ -193,7 +234,7 @@ function Dashboard() {
                   <div key={transaction.id} className="transaction-item">
                     <div className="transaction-info">
                       <div className="transaction-desc">{transaction.description}</div>
-                      <div className="transaction-time">{new Date(transaction.createdAt).toLocaleString()}</div>
+                      <div className="transaction-time">{formatTime(transaction.created_at || transaction.createdAt)}</div>
                     </div>
                     <div className={`transaction-amount ${transaction.amount > 0 ? 'positive' : 'negative'}`}>
                       {transaction.amount > 0 ? '+' : ''}{transaction.amount}
@@ -307,7 +348,7 @@ function Dashboard() {
                       {transaction.amount > 0 ? '+' : ''}{transaction.amount}
                     </span>
                     <span className="transaction-balance">{transaction.balance}</span>
-                    <span className="transaction-time">{new Date(transaction.createdAt).toLocaleString()}</span>
+                    <span className="transaction-time">{formatTime(transaction.created_at || transaction.createdAt)}</span>
                   </div>
                 ))}
                 {transactions.length === 0 && (
@@ -330,10 +371,10 @@ function Dashboard() {
                       <div className="record-info">
                         <span className="record-prompt">{record.prompt}</span>
                         {record.scene && <span className="record-scene">{record.scene}</span>}
-                        <span className="record-count">{record.imageCount}张图片</span>
+                        <span className="record-count">{record.image_count || record.imageCount}张图片</span>
                       </div>
                       <div className="record-time">
-                        <div className="record-created">{new Date(record.createdAt).toLocaleString()}</div>
+                        <div className="record-created">{formatTime(record.created_at || record.createdAt)}</div>
                         <div className="record-expires">
                           剩余时间: {formatRemainingTime(record.remainingTime)}
                         </div>
@@ -357,7 +398,7 @@ function Dashboard() {
                         className="download-all-btn"
                         onClick={() => downloadAllImages(record)}
                       >
-                        📦 打包下载全部
+                        📦 {record.images.length > 1 ? '打包下载全部' : '下载图片'}
                       </button>
                       <button 
                         className="delete-record-btn"
