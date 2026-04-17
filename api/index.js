@@ -41,10 +41,6 @@ export default {
         response = await handleSaveGeneration(request, env);
       } else if (path === '/api/generations/cleanup' && method === 'POST') {
         response = await handleCleanupGenerations(request, env);
-      } else if (path === '/api/prompts/used' && method === 'GET') {
-        response = await handleGetUsedPrompts(request, env);
-      } else if (path === '/api/prompts/mark-used' && method === 'POST') {
-        response = await handleMarkPromptUsed(request, env);
       } else {
         response = new Response(JSON.stringify({ error: 'Not found' }), {
           status: 404,
@@ -302,35 +298,6 @@ async function handleCleanupGenerations(request, env) {
     success: true, 
     deletedCount: result.meta.changes 
   });
-}
-
-async function handleGetUsedPrompts(request, env) {
-  const userId = request.headers.get('X-User-Id');
-  
-  if (!userId) {
-    return jsonResponse({ error: '未登录' }, 401);
-  }
-
-  const prompts = await env.DB.prepare(
-    'SELECT prompt_id FROM used_prompts WHERE user_id = ?'
-  ).bind(userId).all();
-
-  return jsonResponse(prompts.results.map(p => p.prompt_id));
-}
-
-async function handleMarkPromptUsed(request, env) {
-  const userId = request.headers.get('X-User-Id');
-  const { promptId } = await request.json();
-
-  if (!userId) {
-    return jsonResponse({ error: '未登录' }, 401);
-  }
-
-  await env.DB.prepare(
-    'INSERT OR IGNORE INTO used_prompts (user_id, prompt_id) VALUES (?, ?)'
-  ).bind(userId, promptId).run();
-
-  return jsonResponse({ success: true });
 }
 
 function jsonResponse(data, status = 200) {

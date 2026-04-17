@@ -4,20 +4,30 @@ import { useAuth } from './contexts/AuthContext';
 import api from './services/api';
 
 function App({ requireAuth }) {
-  const { user, logout, consumePoints, saveGenerationRecord, markPromptAsUsed, getUsedPromptIds, getPromptsList } = useAuth();
+  const { user, logout, consumePoints, saveGenerationRecord } = useAuth();
   const navigate = useNavigate();
   const [images, setImages] = useState([]);
-  const [selectedPrompt, setSelectedPrompt] = useState(null);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [imageCount, setImageCount] = useState(1);
   const [keepFace, setKeepFace] = useState(true);
-  const [selectedScene, setSelectedScene] = useState('');
   const [activeTab, setActiveTab] = useState('全部');
   const [heroStyleIndex, setHeroStyleIndex] = useState(0);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const fileInputRef = useRef(null);
+
+  const [basicParams, setBasicParams] = useState({
+    scene: '',
+    visualStyle: ''
+  });
+
+  const [advancedParams, setAdvancedParams] = useState({
+    composition: '',
+    lighting: '',
+    mood: ''
+  });
 
   const prompts = [
     { name: '专业写真', description: '光线柔和，色彩丰富', category: '复古', image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&h=800&fit=crop' },
@@ -31,13 +41,54 @@ function App({ requireAuth }) {
     { name: '酒吧氛围', description: '昏暗灯光，迷离氛围', category: '现代', image: 'https://images.unsplash.com/photo-1495603889488-42d1d66e5523?w=600&h=800&fit=crop' }
   ];
 
-  const scenes = [
-    { name: '末日废土', description: '末日废土场景，荒凉的沙漠，破败的建筑残骸，灰暗的天空，废墟中的生存者氛围，破旧的衣物，风沙弥漫，末日后的世界' },
-    { name: '古装仙侠', description: '古装仙侠场景，飘逸的汉服，仙气缭绕，古风建筑，竹林深处，云雾缭绕的山峰，修仙者的意境，水墨画风格背景' },
-    { name: '现代都市', description: '现代都市场景，繁华的街道，高楼大厦，霓虹灯闪烁，都市夜景，时尚的现代建筑，车水马龙' },
-    { name: '自然森林', description: '自然森林场景，茂密的树林，阳光透过树叶，清新的空气，野花盛开，小溪流淌，自然的宁静' },
-    { name: '海边沙滩', description: '海边沙滩场景，金色的沙滩，蔚蓝的大海，椰树摇曳，阳光明媚，海浪轻拍，度假氛围' },
-    { name: '雪景冰原', description: '雪景冰原场景，白雪皑皑，冰天雪地，雪花飘落，冰川山脉，寒冷而纯净的氛围' }
+  const sceneThemes = [
+    { name: '森林秘境', description: '森林秘境场景，茂密的树林，阳光透过树叶洒下斑驳光影，清新的空气，野花盛开，小溪流淌，自然的宁静与神秘' },
+    { name: '室内咖啡厅', description: '室内咖啡厅场景，温馨的灯光，木质家具，咖啡香气，窗边的阳光，舒适的沙发，文艺氛围' },
+    { name: '复古街道', description: '复古街道场景，老式建筑，石板路，街边小店，复古招牌，怀旧氛围，时光倒流的感觉' },
+    { name: '高级影棚', description: '高级影棚场景，专业灯光设备，纯色背景，反光板，摄影器材，专业拍摄环境' },
+    { name: '海滨沙滩', description: '海滨沙滩场景，金色的沙滩，蔚蓝的大海，椰树摇曳，阳光明媚，海浪轻拍，度假氛围' },
+    { name: '雪地公园', description: '雪地公园场景，白雪皑皑，冰天雪地，雪花飘落，冰川山脉，寒冷而纯净的氛围' },
+    { name: '赛博霓虹街', description: '赛博霓虹街场景，霓虹灯闪烁，未来科技感，高楼大厦，电子屏幕，赛博朋克风格' },
+    { name: '职场办公室', description: '职场办公室场景，现代办公环境，落地窗，城市景观，专业商务氛围' },
+    { name: '午后花园', description: '午后花园场景，阳光明媚，鲜花盛开，蝴蝶飞舞，温暖舒适的午后时光' },
+    { name: '欧式古堡', description: '欧式古堡场景，古老的城堡建筑，石墙，烛光，神秘而优雅的氛围' }
+  ];
+
+  const visualStyles = [
+    { name: '法式复古', description: '法式复古风格，优雅浪漫，柔和的色调，复古的质感' },
+    { name: '日系小清新', description: '日系小清新风格，明亮通透，淡雅的色彩，青春活力' },
+    { name: '港风胶片', description: '港风胶片风格，浓郁的色彩，胶片质感，复古怀旧' },
+    { name: '欧美时尚', description: '欧美时尚风格，大胆的色彩对比，时尚前卫，高级感' },
+    { name: '极简高级感', description: '极简高级感风格，简洁的构图，干净的背景，突出主体' },
+    { name: '黑白电影', description: '黑白电影风格，高对比度，经典黑白，艺术感强' },
+    { name: '油画质感', description: '油画质感风格，丰富的层次，艺术绘画感，古典美' },
+    { name: '莫兰迪艺术', description: '莫兰迪艺术风格，低饱和度，柔和的色彩，高级灰调' },
+    { name: '韩系柔光', description: '韩系柔光风格，柔和的光线，温暖的色调，清新自然' }
+  ];
+
+  const compositions = [
+    { name: '特写', description: '特写构图，突出五官细节，面部表情清晰可见' },
+    { name: '半身照', description: '半身照构图，突出动作与情绪，展示上半身姿态' },
+    { name: '全身照', description: '全身照构图，展示服饰与环境关系，完整的人物形象' },
+    { name: '俯拍', description: '俯拍构图，显得娇小、具有无辜感，独特的视角' },
+    { name: '仰拍', description: '仰拍构图，显得高大、气场强大，震撼的视觉效果' }
+  ];
+
+  const lightings = [
+    { name: '丁达尔效应', description: '丁达尔效应光影，林间散光、仙气，梦幻的光束效果' },
+    { name: '伦勃朗光', description: '伦勃朗光，45度侧光、高级质感，经典的肖像布光' },
+    { name: '黄金小时', description: '黄金小时光影，日落暖光、柔和，温暖浪漫的氛围' },
+    { name: '百叶窗投影', description: '百叶窗投影光影，条纹阴影、故事感，独特的光影效果' },
+    { name: '霓虹彩光', description: '霓虹彩光，多色对比、科幻感，未来感十足' },
+    { name: '侧逆光', description: '侧逆光，勾勒头发和身体轮廓线，立体感强' }
+  ];
+
+  const moods = [
+    { name: '自然感', description: '自然感情绪，轻松自在，真实不做作' },
+    { name: '冷酷感', description: '冷酷感情绪，高冷疏离，神秘感' },
+    { name: '忧郁感', description: '忧郁感情绪，深沉内敛，情感丰富' },
+    { name: '互动感', description: '互动感情绪，活泼生动，与镜头互动' },
+    { name: '沉思感', description: '沉思感情绪，安静思考，深邃的眼神' }
   ];
 
   const tabs = ['全部', '复古', '幻想', '自然', '现代'];
@@ -103,66 +154,39 @@ function App({ requireAuth }) {
     setImages(prevImages => [...prevImages, ...imagePreviews]);
   };
 
-  const randomGenerate = async () => {
-    if (!user) {
-      setShowAuthModal(true);
-      return;
+  const buildPrompt = () => {
+    let promptParts = [];
+
+    if (keepFace) {
+      promptParts.push('保持图一人物的五官不变');
     }
 
-    if (images.length === 0) {
-      setError('请先上传至少一张图片');
-      return;
+    if (basicParams.scene) {
+      const scene = sceneThemes.find(s => s.name === basicParams.scene);
+      if (scene) promptParts.push(scene.description);
     }
 
-    const promptsList = getPromptsList();
-    if (promptsList.length === 0) {
-      setError('暂无可用的提示词，请稍后再试');
-      return;
+    if (basicParams.visualStyle) {
+      const style = visualStyles.find(s => s.name === basicParams.visualStyle);
+      if (style) promptParts.push(style.description);
     }
 
-    const prompt = promptsList[0];
-    const imageCount = Number(prompt.image_count) || 3;
-    const pointsRequired = imageCount * 10;
-
-    if (user.points < pointsRequired) {
-      setError(`积分不足！生成${imageCount}张图片需要${pointsRequired}积分，当前积分：${user.points}`);
-      return;
+    if (advancedParams.composition) {
+      const comp = compositions.find(c => c.name === advancedParams.composition);
+      if (comp) promptParts.push(comp.description);
     }
 
-    const consumeResult = await consumePoints(pointsRequired, `随机生成${imageCount}张图片（ID: ${prompt.id}）`);
-    if (!consumeResult.success) {
-      setError(consumeResult.message);
-      return;
+    if (advancedParams.lighting) {
+      const light = lightings.find(l => l.name === advancedParams.lighting);
+      if (light) promptParts.push(light.description);
     }
 
-    setLoading(true);
-    setError('');
-    setResults([]);
-
-    try {
-      const imageBase64 = await imageToBase64(images[0].file);
-      const finalPrompt = `（生成${imageCount}张图片）${prompt.description}`;
-
-      const generatedImages = await api.generateImages(
-        finalPrompt,
-        imageBase64,
-        imageCount,
-        (url) => {
-          setResults(prev => [...prev, url]);
-        }
-      );
-
-      if (generatedImages.length > 0) {
-        await markPromptAsUsed(prompt.id);
-        await saveGenerationRecord(generatedImages, `随机生成（ID: ${prompt.id}）`, '', imageCount);
-      } else {
-        throw new Error('未获取到生成的图片');
-      }
-    } catch (err) {
-      setError(`生成图片失败: ${err.message}`);
-    } finally {
-      setLoading(false);
+    if (advancedParams.mood) {
+      const mood = moods.find(m => m.name === advancedParams.mood);
+      if (mood) promptParts.push(mood.description);
     }
+
+    return promptParts.join('，');
   };
 
   const generateImages = async () => {
@@ -176,18 +200,13 @@ function App({ requireAuth }) {
       return;
     }
 
-    if (!selectedPrompt) {
-      setError('请选择一个风格');
-      return;
-    }
-
     const pointsRequired = imageCount * 10;
     if (user.points < pointsRequired) {
       setError(`积分不足！生成${imageCount}张图片需要${pointsRequired}积分，当前积分：${user.points}`);
       return;
     }
 
-    const consumeResult = await consumePoints(pointsRequired, `生成${imageCount}张${selectedPrompt.name}风格图片`);
+    const consumeResult = await consumePoints(pointsRequired, `生成${imageCount}张图片`);
     if (!consumeResult.success) {
       setError(consumeResult.message);
       return;
@@ -199,18 +218,12 @@ function App({ requireAuth }) {
 
     try {
       const imageBase64 = await imageToBase64(images[0].file);
+      const finalPrompt = buildPrompt();
 
-      let finalPrompt = selectedPrompt.description;
-      
-      if (keepFace) {
-        finalPrompt = '（保持图一人物的五官不变）' + finalPrompt;
-      }
-      
-      if (selectedScene) {
-        const sceneData = scenes.find(s => s.name === selectedScene);
-        if (sceneData) {
-          finalPrompt = finalPrompt + '，' + sceneData.description;
-        }
+      if (!finalPrompt) {
+        setError('请至少选择一个参数选项');
+        setLoading(false);
+        return;
       }
 
       const generatedImages = await api.generateImages(
@@ -223,7 +236,7 @@ function App({ requireAuth }) {
       );
 
       if (generatedImages.length > 0) {
-        await saveGenerationRecord(generatedImages, selectedPrompt.name, selectedScene, imageCount);
+        await saveGenerationRecord(generatedImages, finalPrompt.substring(0, 100), '', imageCount);
       } else {
         throw new Error('未获取到生成的图片');
       }
@@ -298,7 +311,7 @@ function App({ requireAuth }) {
 
       {/* Gallery Section */}
       <section className="gallery-section">
-        <h2 className="section-title">风格画廊</h2>
+        <h2 className="section-title">画廊</h2>
         
         <div className="tab-bar">
           {tabs.map(tab => (
@@ -316,12 +329,7 @@ function App({ requireAuth }) {
           {filteredPrompts.map((prompt, index) => (
             <div
               key={index}
-              className={`style-card ${selectedPrompt?.name === prompt.name ? 'selected' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                setSelectedPrompt(prompt);
-              }}
+              className="style-card"
             >
               <img 
                 src={prompt.image}
@@ -331,49 +339,7 @@ function App({ requireAuth }) {
               <div className="style-card-overlay">
                 <h3 className="style-card-title">{prompt.name}</h3>
                 <p className="style-card-description">{prompt.description}</p>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    setSelectedPrompt(prompt);
-                  }}
-                  style={{
-                    marginTop: '1rem',
-                    padding: '0.5rem 1.5rem',
-                    background: selectedPrompt?.name === prompt.name 
-                      ? 'var(--accent-color)' 
-                      : 'rgba(255, 255, 255, 0.2)',
-                    border: '1px solid var(--accent-color)',
-                    borderRadius: '20px',
-                    color: 'white',
-                    fontSize: '0.9rem',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s ease',
-                    pointerEvents: 'auto'
-                  }}
-                >
-                  {selectedPrompt?.name === prompt.name ? '已选择 ✓' : '选择此风格'}
-                </button>
               </div>
-              {selectedPrompt?.name === prompt.name && (
-                <div style={{
-                  position: 'absolute',
-                  top: '10px',
-                  right: '10px',
-                  width: '30px',
-                  height: '30px',
-                  background: 'var(--accent-color)',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  fontSize: '1.2rem',
-                  zIndex: 10
-                }}>
-                  ✓
-                </div>
-              )}
             </div>
           ))}
         </div>
@@ -382,22 +348,6 @@ function App({ requireAuth }) {
       {/* Upload Section */}
       <section className="upload-section">
         <h2 className="section-title">开始创作</h2>
-        
-        {selectedPrompt && (
-          <div style={{ 
-            maxWidth: '800px', 
-            margin: '0 auto 2rem', 
-            padding: '1rem 1.5rem',
-            background: 'var(--glass-bg)',
-            borderRadius: '12px',
-            border: '1px solid var(--accent-color)',
-            textAlign: 'center'
-          }}>
-            <span style={{ color: 'var(--text-secondary)', marginRight: '0.5rem' }}>已选择风格：</span>
-            <span style={{ color: 'var(--accent-color)', fontWeight: '600' }}>{selectedPrompt.name}</span>
-            <span style={{ color: 'var(--text-muted)', marginLeft: '0.5rem' }}>- {selectedPrompt.description}</span>
-          </div>
-        )}
         
         <div className="upload-container">
           <div 
@@ -471,6 +421,7 @@ function App({ requireAuth }) {
 
           {/* Options Panel */}
           <div className="options-panel">
+            {/* 人脸保持 */}
             <div className="option-group">
               <label className="option-label">人脸保持</label>
               <label className="checkbox-option">
@@ -483,21 +434,107 @@ function App({ requireAuth }) {
               </label>
             </div>
 
-            <div className="option-group">
-              <label className="option-label">选择场景</label>
-              <div className="option-grid">
-                {scenes.map(scene => (
-                  <button
-                    key={scene.name}
-                    className={`option-chip ${selectedScene === scene.name ? 'selected' : ''}`}
-                    onClick={() => setSelectedScene(scene.name === selectedScene ? '' : scene.name)}
-                  >
-                    {scene.name}
-                  </button>
-                ))}
+            {/* 基础参数 */}
+            <div className="params-section">
+              <h3 className="params-section-title">基础参数</h3>
+              
+              <div className="option-group">
+                <label className="option-label">场景主题</label>
+                <div className="option-grid">
+                  {sceneThemes.map(scene => (
+                    <button
+                      key={scene.name}
+                      className={`option-chip ${basicParams.scene === scene.name ? 'selected' : ''}`}
+                      onClick={() => setBasicParams(prev => ({ ...prev, scene: prev.scene === scene.name ? '' : scene.name }))}
+                      title={scene.description}
+                    >
+                      {scene.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="option-group">
+                <label className="option-label">视觉风格</label>
+                <div className="option-grid">
+                  {visualStyles.map(style => (
+                    <button
+                      key={style.name}
+                      className={`option-chip ${basicParams.visualStyle === style.name ? 'selected' : ''}`}
+                      onClick={() => setBasicParams(prev => ({ ...prev, visualStyle: prev.visualStyle === style.name ? '' : style.name }))}
+                      title={style.description}
+                    >
+                      {style.name}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
+            {/* 高级参数 */}
+            <div className="params-section">
+              <div 
+                className="params-section-header"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+              >
+                <h3 className="params-section-title">高级参数</h3>
+                <span className={`expand-icon ${showAdvanced ? 'expanded' : ''}`}>▼</span>
+              </div>
+              
+              {showAdvanced && (
+                <>
+                  <div className="option-group">
+                    <label className="option-label">构图</label>
+                    <div className="option-grid">
+                      {compositions.map(comp => (
+                        <button
+                          key={comp.name}
+                          className={`option-chip ${advancedParams.composition === comp.name ? 'selected' : ''}`}
+                          onClick={() => setAdvancedParams(prev => ({ ...prev, composition: prev.composition === comp.name ? '' : comp.name }))}
+                          title={comp.description}
+                        >
+                          {comp.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="option-group">
+                    <label className="option-label">光影</label>
+                    <div className="option-grid">
+                      {lightings.map(light => (
+                        <button
+                          key={light.name}
+                          className={`option-chip ${advancedParams.lighting === light.name ? 'selected' : ''}`}
+                          onClick={() => setAdvancedParams(prev => ({ ...prev, lighting: prev.lighting === light.name ? '' : light.name }))}
+                          title={light.description}
+                        >
+                          {light.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="option-group">
+                    <label className="option-label">情绪</label>
+                    <div className="option-grid">
+                      {moods.map(mood => (
+                        <button
+                          key={mood.name}
+                          className={`option-chip ${advancedParams.mood === mood.name ? 'selected' : ''}`}
+                          onClick={() => setAdvancedParams(prev => ({ ...prev, mood: prev.mood === mood.name ? '' : mood.name }))}
+                          title={mood.description}
+                        >
+                          {mood.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 生成数量 */}
             <div className="option-group">
               <label className="option-label">生成数量</label>
               <div className="option-grid">
@@ -520,14 +557,6 @@ function App({ requireAuth }) {
                 disabled={loading}
               >
                 {loading ? '生成中...' : '开始生成'}
-              </button>
-              
-              <button 
-                className="random-generate-button"
-                onClick={randomGenerate}
-                disabled={loading}
-              >
-                🎲 随便来三张
               </button>
             </div>
             

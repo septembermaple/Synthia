@@ -6,7 +6,6 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [prompts, setPrompts] = useState([]);
 
   useEffect(() => {
     api.getCurrentUser()
@@ -18,16 +17,6 @@ export const AuthProvider = ({ children }) => {
       })
       .finally(() => {
         setLoading(false);
-      });
-  }, []);
-
-  useEffect(() => {
-    api.getPrompts()
-      .then(data => {
-        setPrompts(data);
-      })
-      .catch(() => {
-        setPrompts([]);
       });
   }, []);
 
@@ -126,20 +115,6 @@ export const AuthProvider = ({ children }) => {
     return await api.deleteGeneration(recordId);
   };
 
-  const getPromptsList = () => {
-    return prompts;
-  };
-
-  const markPromptAsUsed = async (promptId) => {
-    if (!user) return;
-    return await api.markPromptUsed(promptId);
-  };
-
-  const getUsedPromptIds = async () => {
-    if (!user) return [];
-    return await api.getUsedPrompts();
-  };
-
   return (
     <AuthContext.Provider value={{
       user,
@@ -156,10 +131,7 @@ export const AuthProvider = ({ children }) => {
       getTransactions,
       saveGenerationRecord,
       getGenerationRecords,
-      deleteGenerationRecord,
-      getPromptsList,
-      markPromptAsUsed,
-      getUsedPromptIds
+      deleteGenerationRecord
     }}>
       {children}
     </AuthContext.Provider>

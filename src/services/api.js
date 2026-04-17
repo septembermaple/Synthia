@@ -125,21 +125,6 @@ class ApiService {
     });
   }
 
-  async getPrompts() {
-    return await this.request('/api/prompts');
-  }
-
-  async getUsedPrompts() {
-    return await this.request('/api/prompts/used');
-  }
-
-  async markPromptUsed(promptId) {
-    return await this.request('/api/prompts/mark-used', {
-      method: 'POST',
-      body: JSON.stringify({ promptId }),
-    });
-  }
-
   async generateImages(prompt, imageBase64, imageCount, onImageGenerated) {
     const url = `${this.baseURL}/api/images/generate`;
     const token = this.getToken();
