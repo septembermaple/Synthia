@@ -41,6 +41,8 @@ export default {
         response = await handleSaveGeneration(request, env);
       } else if (path === '/api/generations/cleanup' && method === 'POST') {
         response = await handleCleanupGenerations(request, env);
+      } else if (path === '/api/llm/generate-prompt' && method === 'POST') {
+        response = await handleGeneratePrompt(request, env);
       } else {
         response = new Response(JSON.stringify({ error: 'Not found' }), {
           status: 404,
@@ -298,6 +300,64 @@ async function handleCleanupGenerations(request, env) {
     success: true, 
     deletedCount: result.meta.changes 
   });
+}
+
+async function handleGeneratePrompt(request, env) {
+  const { scene, style } = await request.json();
+
+  if (!scene) {
+    return jsonResponse({ error: '场景不能为空' }, 400);
+  }
+
+  const arkApiKey = env.ARK_API_KEY;
+  const arkApiUrl = env.ARK_API_URL || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
+  const arkModel = env.ARK_MODEL || 'doubao-seed-2-0-lite-260215';
+
+  if (!arkApiKey) {
+    return jsonResponse({ error: 'LLM API未配置' }, 500);
+  }
+
+  const inputKeyword = `[关键词：场景为：${scene}，风格为：${style || '未指定'}][我需要你帮我生成一段顶级的写真指令描述，包括但不限于风格，场景，人物，动作，镜头，光学等。待会我要用这段描述给图片大模型生成图片]`;
+
+  console.log('=== LLM调用入参 ===');
+  console.log(inputKeyword);
+
+  try {
+    const response = await fetch(arkApiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${arkApiKey}`
+      },
+      body: JSON.stringify({
+        model: arkModel,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a professional photography prompt expert. Generate detailed and creative photography prompts.'
+          },
+          {
+            role: 'user',
+            content: inputKeyword
+          }
+        ]
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.choices && data.choices[0] && data.choices[0].message) {
+      const generatedPrompt = data.choices[0].message.content;
+      console.log('=== LLM生成结果 ===');
+      console.log(generatedPrompt);
+      return jsonResponse({ success: true, prompt: generatedPrompt });
+    } else {
+      return jsonResponse({ error: 'LLM响应格式错误' }, 500);
+    }
+  } catch (err) {
+    console.error('LLM调用失败:', err);
+    return jsonResponse({ error: 'LLM调用失败: ' + err.message }, 500);
+  }
 }
 
 function jsonResponse(data, status = 200) {

@@ -125,6 +125,13 @@ class ApiService {
     });
   }
 
+  async generatePrompt(scene, style) {
+    return await this.request('/api/llm/generate-prompt', {
+      method: 'POST',
+      body: JSON.stringify({ scene, style }),
+    });
+  }
+
   async generateImages(prompt, imageBase64, imageCount, onImageGenerated) {
     const url = `${this.baseURL}/api/images/generate`;
     const token = this.getToken();

@@ -3,6 +3,94 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import api from './services/api';
 
+const sceneCategories = {
+  '自然与旷野': [
+    { name: '森林秘境', lighting: '丁达尔效应', style: '日系柔光' },
+    { name: '海滨沙滩', lighting: '黄金小时', style: '欧美时尚' },
+    { name: '雪地公园', lighting: '柔和自然光', style: '韩系柔光' },
+    { name: '午后花园', lighting: '柔和自然光', style: '唯美小清新' },
+    { name: '荒漠孤岭', lighting: '强对比硬光', style: '欧美高级感' },
+    { name: '热带雨林', lighting: '侧逆光', style: '油画质感' },
+    { name: '薰衣草花海', lighting: '黄金小时', style: '唯美小清新' },
+    { name: '悬崖边境', lighting: '强对比硬光', style: '极简高级感' },
+    { name: '极光之夜', lighting: '霓虹氛围灯', style: '艺术质感' },
+    { name: '向日葵田', lighting: '黄金小时', style: '唯美小清新' },
+    { name: '芦苇荡', lighting: '侧逆光', style: '港风胶片' },
+    { name: '溶洞奇观', lighting: '侧逆光', style: '艺术质感' },
+    { name: '红枫林', lighting: '黄金小时', style: '电影感' },
+    { name: '瀑布溪流', lighting: '柔和自然光', style: '日系柔光' }
+  ],
+  '都市与现代': [
+    { name: '职场办公室', lighting: '柔和自然光', style: '极简高级感' },
+    { name: '天台顶层', lighting: '黄金小时', style: '欧美时尚' },
+    { name: '地下通道', lighting: '霓虹氛围灯', style: '港风胶片' },
+    { name: '私人停机坪', lighting: '强对比硬光', style: '欧美高级感' },
+    { name: '极简美术馆', lighting: '柔和自然光', style: '极简高级感' },
+    { name: '高空无边泳池', lighting: '黄金小时', style: '欧美时尚' },
+    { name: '中央车站', lighting: '柔和自然光', style: '黑白纪实' },
+    { name: '网球场/体育场', lighting: '柔和自然光', style: '唯美小清新' },
+    { name: '现代图书馆', lighting: '柔和自然光', style: '韩系柔光' },
+    { name: '高端买手店', lighting: '伦勃朗光', style: '欧美高级感' },
+    { name: '地铁车厢', lighting: '霓虹氛围灯', style: '港风胶片' }
+  ],
+  '怀旧与复古': [
+    { name: '复古街道', lighting: '侧逆光', style: '港风胶片' },
+    { name: '室内咖啡厅', lighting: '百叶窗投影', style: '法式复古' },
+    { name: '老式理发店', lighting: '暖色霓虹灯', style: '港风胶片' },
+    { name: '古着杂货铺', lighting: '柔和自然光', style: '港风胶片' },
+    { name: '民国照相馆', lighting: '柔和自然光', style: '艺术质感' },
+    { name: '公路加油站', lighting: '强对比硬光', style: '欧美时尚' },
+    { name: '废弃工厂', lighting: '强对比硬光', style: '黑白纪实' },
+    { name: '老式剧院', lighting: '伦勃朗光', style: '电影感' },
+    { name: '黑胶唱片店', lighting: '百叶窗投影', style: '港风胶片' },
+    { name: '90年代校园', lighting: '柔和自然光', style: '唯美小清新' },
+    { name: '老街小巷', lighting: '侧逆光', style: '港风胶片' },
+    { name: '绿皮火车', lighting: '百叶窗投影', style: '法式复古' }
+  ],
+  '幻想与艺术': [
+    { name: '高级影棚', lighting: '伦勃朗光', style: '时尚杂志风' },
+    { name: '赛博霓虹街', lighting: '霓虹氛围灯', style: '艺术质感' },
+    { name: '欧式古堡', lighting: '伦勃朗光', style: '油画质感' },
+    { name: '云端之上', lighting: '柔和自然光', style: '唯美小清新' },
+    { name: '水下秘境', lighting: '侧逆光', style: '艺术质感' },
+    { name: '废土末世', lighting: '强对比硬光', style: '电影感' },
+    { name: '巴洛克大厅', lighting: '伦勃朗光', style: '油画质感' },
+    { name: '日式庭院', lighting: '侧逆光', style: '日系柔光' },
+    { name: '魔法图书馆', lighting: '丁达尔效应', style: '艺术质感' },
+    { name: '外星基地', lighting: '霓虹氛围灯', style: '极简高级感' },
+    { name: '中式竹林', lighting: '丁达尔效应', style: '黑白纪实' },
+    { name: '糖果色乐园', lighting: '柔和自然光', style: '唯美小清新' },
+    { name: '维多利亚温室', lighting: '丁达尔效应', style: '唯美小清新' }
+  ],
+  '生活日常': [
+    { name: '清晨卧室', lighting: '柔和自然光', style: '韩系柔光' },
+    { name: '私家车内', lighting: '侧逆光', style: '港风胶片' },
+    { name: '洗衣房', lighting: '柔和自然光', style: '日系柔光' },
+    { name: '厨房烟火', lighting: '柔和自然光', style: '唯美小清新' },
+    { name: '屋顶足球场', lighting: '黄金小时', style: '欧美时尚' },
+    { name: '街角花店', lighting: '柔和自然光', style: '唯美小清新' },
+    { name: '篮球公园', lighting: '强对比硬光', style: '欧美高级感' },
+    { name: '艺术画室', lighting: '侧逆光', style: '油画质感' },
+    { name: '拳击馆', lighting: '伦勃朗光', style: '黑白纪实' },
+    { name: '深夜便利店', lighting: '霓虹氛围灯', style: '港风胶片' }
+  ]
+};
+
+const visualStyles = [
+  '法式复古', '日系小清新', '港风胶片', '欧美时尚', '极简高级感', 
+  '黑白电影', '油画质感', '莫兰迪艺术', '韩系柔光', '唯美小清新',
+  '欧美高级感', '艺术质感', '电影感', '时尚杂志风', '黑白纪实'
+];
+
+const compositions = ['特写', '半身照', '全身照', '俯拍', '仰拍'];
+
+const lightings = [
+  '丁达尔效应', '伦勃朗光', '黄金小时', '百叶窗投影', '霓虹彩光', 
+  '侧逆光', '柔和自然光', '强对比硬光', '霓虹氛围灯', '暖色霓虹灯'
+];
+
+const moods = ['自然感', '冷酷感', '忧郁感', '互动感', '沉思感'];
+
 function App({ requireAuth }) {
   const { user, logout, consumePoints, saveGenerationRecord } = useAuth();
   const navigate = useNavigate();
@@ -19,6 +107,7 @@ function App({ requireAuth }) {
   const fileInputRef = useRef(null);
 
   const [basicParams, setBasicParams] = useState({
+    sceneCategory: '',
     scene: '',
     visualStyle: ''
   });
@@ -39,56 +128,6 @@ function App({ requireAuth }) {
     { name: '简约风格', description: '干净背景，突出人物', category: '现代', image: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=600&h=800&fit=crop' },
     { name: '梦幻风格', description: '柔和光晕，浪漫氛围', category: '幻想', image: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=600&h=800&fit=crop' },
     { name: '酒吧氛围', description: '昏暗灯光，迷离氛围', category: '现代', image: 'https://images.unsplash.com/photo-1495603889488-42d1d66e5523?w=600&h=800&fit=crop' }
-  ];
-
-  const sceneThemes = [
-    { name: '森林秘境', description: '森林秘境场景，茂密的树林，阳光透过树叶洒下斑驳光影，清新的空气，野花盛开，小溪流淌，自然的宁静与神秘' },
-    { name: '室内咖啡厅', description: '室内咖啡厅场景，温馨的灯光，木质家具，咖啡香气，窗边的阳光，舒适的沙发，文艺氛围' },
-    { name: '复古街道', description: '复古街道场景，老式建筑，石板路，街边小店，复古招牌，怀旧氛围，时光倒流的感觉' },
-    { name: '高级影棚', description: '高级影棚场景，专业灯光设备，纯色背景，反光板，摄影器材，专业拍摄环境' },
-    { name: '海滨沙滩', description: '海滨沙滩场景，金色的沙滩，蔚蓝的大海，椰树摇曳，阳光明媚，海浪轻拍，度假氛围' },
-    { name: '雪地公园', description: '雪地公园场景，白雪皑皑，冰天雪地，雪花飘落，冰川山脉，寒冷而纯净的氛围' },
-    { name: '赛博霓虹街', description: '赛博霓虹街场景，霓虹灯闪烁，未来科技感，高楼大厦，电子屏幕，赛博朋克风格' },
-    { name: '职场办公室', description: '职场办公室场景，现代办公环境，落地窗，城市景观，专业商务氛围' },
-    { name: '午后花园', description: '午后花园场景，阳光明媚，鲜花盛开，蝴蝶飞舞，温暖舒适的午后时光' },
-    { name: '欧式古堡', description: '欧式古堡场景，古老的城堡建筑，石墙，烛光，神秘而优雅的氛围' }
-  ];
-
-  const visualStyles = [
-    { name: '法式复古', description: '法式复古风格，优雅浪漫，柔和的色调，复古的质感' },
-    { name: '日系小清新', description: '日系小清新风格，明亮通透，淡雅的色彩，青春活力' },
-    { name: '港风胶片', description: '港风胶片风格，浓郁的色彩，胶片质感，复古怀旧' },
-    { name: '欧美时尚', description: '欧美时尚风格，大胆的色彩对比，时尚前卫，高级感' },
-    { name: '极简高级感', description: '极简高级感风格，简洁的构图，干净的背景，突出主体' },
-    { name: '黑白电影', description: '黑白电影风格，高对比度，经典黑白，艺术感强' },
-    { name: '油画质感', description: '油画质感风格，丰富的层次，艺术绘画感，古典美' },
-    { name: '莫兰迪艺术', description: '莫兰迪艺术风格，低饱和度，柔和的色彩，高级灰调' },
-    { name: '韩系柔光', description: '韩系柔光风格，柔和的光线，温暖的色调，清新自然' }
-  ];
-
-  const compositions = [
-    { name: '特写', description: '特写构图，突出五官细节，面部表情清晰可见' },
-    { name: '半身照', description: '半身照构图，突出动作与情绪，展示上半身姿态' },
-    { name: '全身照', description: '全身照构图，展示服饰与环境关系，完整的人物形象' },
-    { name: '俯拍', description: '俯拍构图，显得娇小、具有无辜感，独特的视角' },
-    { name: '仰拍', description: '仰拍构图，显得高大、气场强大，震撼的视觉效果' }
-  ];
-
-  const lightings = [
-    { name: '丁达尔效应', description: '丁达尔效应光影，林间散光、仙气，梦幻的光束效果' },
-    { name: '伦勃朗光', description: '伦勃朗光，45度侧光、高级质感，经典的肖像布光' },
-    { name: '黄金小时', description: '黄金小时光影，日落暖光、柔和，温暖浪漫的氛围' },
-    { name: '百叶窗投影', description: '百叶窗投影光影，条纹阴影、故事感，独特的光影效果' },
-    { name: '霓虹彩光', description: '霓虹彩光，多色对比、科幻感，未来感十足' },
-    { name: '侧逆光', description: '侧逆光，勾勒头发和身体轮廓线，立体感强' }
-  ];
-
-  const moods = [
-    { name: '自然感', description: '自然感情绪，轻松自在，真实不做作' },
-    { name: '冷酷感', description: '冷酷感情绪，高冷疏离，神秘感' },
-    { name: '忧郁感', description: '忧郁感情绪，深沉内敛，情感丰富' },
-    { name: '互动感', description: '互动感情绪，活泼生动，与镜头互动' },
-    { name: '沉思感', description: '沉思感情绪，安静思考，深邃的眼神' }
   ];
 
   const tabs = ['全部', '复古', '幻想', '自然', '现代'];
@@ -154,39 +193,24 @@ function App({ requireAuth }) {
     setImages(prevImages => [...prevImages, ...imagePreviews]);
   };
 
-  const buildPrompt = () => {
-    let promptParts = [];
-
-    if (keepFace) {
-      promptParts.push('保持图一人物的五官不变');
+  const generatePromptWithLLM = async (scene, style) => {
+    console.log('=== LLM调用入参 ===');
+    console.log(`场景: ${scene}, 风格: ${style}`);
+    
+    try {
+      const result = await api.generatePrompt(scene, style);
+      
+      if (result.success && result.prompt) {
+        console.log('=== LLM生成结果 ===');
+        console.log(result.prompt);
+        return result.prompt;
+      } else {
+        throw new Error(result.error || 'LLM生成失败');
+      }
+    } catch (err) {
+      console.error('LLM调用失败:', err);
+      throw err;
     }
-
-    if (basicParams.scene) {
-      const scene = sceneThemes.find(s => s.name === basicParams.scene);
-      if (scene) promptParts.push(scene.description);
-    }
-
-    if (basicParams.visualStyle) {
-      const style = visualStyles.find(s => s.name === basicParams.visualStyle);
-      if (style) promptParts.push(style.description);
-    }
-
-    if (advancedParams.composition) {
-      const comp = compositions.find(c => c.name === advancedParams.composition);
-      if (comp) promptParts.push(comp.description);
-    }
-
-    if (advancedParams.lighting) {
-      const light = lightings.find(l => l.name === advancedParams.lighting);
-      if (light) promptParts.push(light.description);
-    }
-
-    if (advancedParams.mood) {
-      const mood = moods.find(m => m.name === advancedParams.mood);
-      if (mood) promptParts.push(mood.description);
-    }
-
-    return promptParts.join('，');
   };
 
   const generateImages = async () => {
@@ -197,6 +221,11 @@ function App({ requireAuth }) {
     
     if (images.length === 0) {
       setError('请先上传至少一张图片');
+      return;
+    }
+
+    if (!basicParams.scene) {
+      setError('请选择场景');
       return;
     }
 
@@ -218,12 +247,15 @@ function App({ requireAuth }) {
 
     try {
       const imageBase64 = await imageToBase64(images[0].file);
-      const finalPrompt = buildPrompt();
-
-      if (!finalPrompt) {
-        setError('请至少选择一个参数选项');
-        setLoading(false);
-        return;
+      
+      const categoryScenes = basicParams.sceneCategory ? sceneCategories[basicParams.sceneCategory] : [];
+      const sceneData = categoryScenes.find(s => s.name === basicParams.scene);
+      const style = basicParams.visualStyle || (sceneData ? sceneData.style : '');
+      
+      let finalPrompt = await generatePromptWithLLM(basicParams.scene, style);
+      
+      if (keepFace) {
+        finalPrompt = '（保持图一人物的五官不变）' + finalPrompt;
       }
 
       const generatedImages = await api.generateImages(
@@ -236,7 +268,7 @@ function App({ requireAuth }) {
       );
 
       if (generatedImages.length > 0) {
-        await saveGenerationRecord(generatedImages, finalPrompt.substring(0, 100), '', imageCount);
+        await saveGenerationRecord(generatedImages, finalPrompt.substring(0, 100), basicParams.scene, imageCount);
       } else {
         throw new Error('未获取到生成的图片');
       }
@@ -349,208 +381,223 @@ function App({ requireAuth }) {
       <section className="upload-section">
         <h2 className="section-title">开始创作</h2>
         
-        <div className="upload-container">
-          <div 
-            className="upload-box"
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current.click()}
-          >
-            <input
-              type="file"
-              ref={fileInputRef}
-              multiple
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={handleImageUpload}
-            />
-            
-            {loading && (
-              <div className="scanning-overlay">
-                <div className="scanning-line"></div>
-                <p className="scanning-text">正在分析面部特征...</p>
-              </div>
-            )}
-
-            {images.length === 0 ? (
-              <>
-                <svg className="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="17 8 12 3 7 8"/>
-                  <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-                <p className="upload-text">拖拽或点击上传照片</p>
-                <p className="upload-hint">支持 JPG、PNG 格式</p>
-              </>
-            ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
-                {images.map(img => (
-                  <div key={img.id} style={{ position: 'relative' }}>
-                    <img 
-                      src={img.url} 
-                      alt="预览" 
-                      style={{ width: '150px', height: '150px', objectFit: 'cover', borderRadius: '12px' }}
-                    />
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeImage(img.id);
-                      }}
-                      style={{
-                        position: 'absolute',
-                        top: '-8px',
-                        right: '-8px',
-                        background: '#ff6b6b',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '50%',
-                        width: '24px',
-                        height: '24px',
-                        cursor: 'pointer',
-                        fontSize: '14px'
-                      }}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Options Panel */}
-          <div className="options-panel">
-            {/* 人脸保持 */}
-            <div className="option-group">
-              <label className="option-label">人脸保持</label>
-              <label className="checkbox-option">
-                <input
-                  type="checkbox"
-                  checked={keepFace}
-                  onChange={(e) => setKeepFace(e.target.checked)}
-                />
-                <span>保持原有人物五官特征</span>
-              </label>
-            </div>
-
-            {/* 基础参数 */}
-            <div className="params-section">
-              <h3 className="params-section-title">基础参数</h3>
+        <div className="upload-container-new">
+          {/* Left: Upload Area */}
+          <div className="upload-left">
+            <div 
+              className="upload-box"
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current.click()}
+            >
+              <input
+                type="file"
+                ref={fileInputRef}
+                multiple
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleImageUpload}
+              />
               
-              <div className="option-group">
-                <label className="option-label">场景主题</label>
-                <div className="option-grid">
-                  {sceneThemes.map(scene => (
-                    <button
-                      key={scene.name}
-                      className={`option-chip ${basicParams.scene === scene.name ? 'selected' : ''}`}
-                      onClick={() => setBasicParams(prev => ({ ...prev, scene: prev.scene === scene.name ? '' : scene.name }))}
-                      title={scene.description}
-                    >
-                      {scene.name}
-                    </button>
-                  ))}
+              {loading && (
+                <div className="scanning-overlay">
+                  <div className="scanning-line"></div>
+                  <p className="scanning-text">正在分析面部特征...</p>
                 </div>
-              </div>
+              )}
 
-              <div className="option-group">
-                <label className="option-label">视觉风格</label>
-                <div className="option-grid">
-                  {visualStyles.map(style => (
-                    <button
-                      key={style.name}
-                      className={`option-chip ${basicParams.visualStyle === style.name ? 'selected' : ''}`}
-                      onClick={() => setBasicParams(prev => ({ ...prev, visualStyle: prev.visualStyle === style.name ? '' : style.name }))}
-                      title={style.description}
-                    >
-                      {style.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* 高级参数 */}
-            <div className="params-section">
-              <div 
-                className="params-section-header"
-                onClick={() => setShowAdvanced(!showAdvanced)}
-              >
-                <h3 className="params-section-title">高级参数</h3>
-                <span className={`expand-icon ${showAdvanced ? 'expanded' : ''}`}>▼</span>
-              </div>
-              
-              {showAdvanced && (
+              {images.length === 0 ? (
                 <>
-                  <div className="option-group">
-                    <label className="option-label">构图</label>
-                    <div className="option-grid">
-                      {compositions.map(comp => (
-                        <button
-                          key={comp.name}
-                          className={`option-chip ${advancedParams.composition === comp.name ? 'selected' : ''}`}
-                          onClick={() => setAdvancedParams(prev => ({ ...prev, composition: prev.composition === comp.name ? '' : comp.name }))}
-                          title={comp.description}
-                        >
-                          {comp.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="option-group">
-                    <label className="option-label">光影</label>
-                    <div className="option-grid">
-                      {lightings.map(light => (
-                        <button
-                          key={light.name}
-                          className={`option-chip ${advancedParams.lighting === light.name ? 'selected' : ''}`}
-                          onClick={() => setAdvancedParams(prev => ({ ...prev, lighting: prev.lighting === light.name ? '' : light.name }))}
-                          title={light.description}
-                        >
-                          {light.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="option-group">
-                    <label className="option-label">情绪</label>
-                    <div className="option-grid">
-                      {moods.map(mood => (
-                        <button
-                          key={mood.name}
-                          className={`option-chip ${advancedParams.mood === mood.name ? 'selected' : ''}`}
-                          onClick={() => setAdvancedParams(prev => ({ ...prev, mood: prev.mood === mood.name ? '' : mood.name }))}
-                          title={mood.description}
-                        >
-                          {mood.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <svg className="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                  <p className="upload-text">拖拽或点击上传照片</p>
+                  <p className="upload-hint">支持 JPG、PNG 格式</p>
                 </>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
+                  {images.map(img => (
+                    <div key={img.id} style={{ position: 'relative' }}>
+                      <img 
+                        src={img.url} 
+                        alt="预览" 
+                        style={{ width: '150px', height: '150px', objectFit: 'cover', borderRadius: '12px' }}
+                      />
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeImage(img.id);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: '-8px',
+                          right: '-8px',
+                          background: '#ff6b6b',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '50%',
+                          width: '24px',
+                          height: '24px',
+                          cursor: 'pointer',
+                          fontSize: '14px'
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
+          </div>
 
-            {/* 生成数量 */}
-            <div className="option-group">
-              <label className="option-label">生成数量</label>
-              <div className="option-grid">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(count => (
-                  <button
-                    key={count}
-                    className={`option-chip ${imageCount === count ? 'selected' : ''}`}
-                    onClick={() => setImageCount(count)}
-                  >
-                    {count}
-                  </button>
-                ))}
+          {/* Right: Settings Panel */}
+          <div className="upload-right">
+            <div className="settings-panel">
+              {/* 人脸保持 */}
+              <div className="setting-item">
+                <label className="setting-label">人脸保持</label>
+                <label className="checkbox-option">
+                  <input
+                    type="checkbox"
+                    checked={keepFace}
+                    onChange={(e) => setKeepFace(e.target.checked)}
+                  />
+                  <span>保持原有人物五官特征</span>
+                </label>
               </div>
-            </div>
 
-            <div className="button-group">
+              {/* 基础设置 */}
+              <div className="settings-section">
+                <h3 className="settings-section-title">基础设置</h3>
+                
+                <div className="setting-item">
+                  <label className="setting-label">场景主题</label>
+                  <select
+                    className="setting-select"
+                    value={basicParams.sceneCategory && basicParams.scene ? `${basicParams.sceneCategory}|||${basicParams.scene}` : ''}
+                    onChange={(e) => {
+                      if (!e.target.value) {
+                        setBasicParams(prev => ({ 
+                          ...prev, 
+                          sceneCategory: '',
+                          scene: '',
+                          visualStyle: ''
+                        }));
+                        return;
+                      }
+                      const [category, sceneName] = e.target.value.split('|||');
+                      const sceneData = sceneCategories[category]?.find(s => s.name === sceneName);
+                      setBasicParams(prev => ({ 
+                        ...prev, 
+                        sceneCategory: category,
+                        scene: sceneName,
+                        visualStyle: sceneData ? sceneData.style : prev.visualStyle
+                      }));
+                    }}
+                  >
+                    <option value="">请选择场景</option>
+                    {Object.entries(sceneCategories).map(([category, scenes]) => (
+                      <optgroup key={category} label={category}>
+                        {scenes.map(scene => (
+                          <option key={scene.name} value={`${category}|||${scene.name}`}>
+                            {scene.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="setting-item">
+                  <label className="setting-label">视觉风格</label>
+                  <select
+                    className="setting-select"
+                    value={basicParams.visualStyle}
+                    onChange={(e) => setBasicParams(prev => ({ ...prev, visualStyle: e.target.value }))}
+                  >
+                    <option value="">请选择风格</option>
+                    {visualStyles.map(style => (
+                      <option key={style} value={style}>{style}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* 高级设置 */}
+              <div className="settings-section">
+                <div 
+                  className="settings-section-header"
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                >
+                  <h3 className="settings-section-title">高级设置</h3>
+                  <span className={`expand-icon ${showAdvanced ? 'expanded' : ''}`}>▼</span>
+                </div>
+                
+                {showAdvanced && (
+                  <>
+                    <div className="setting-item">
+                      <label className="setting-label">构图</label>
+                      <select
+                        className="setting-select"
+                        value={advancedParams.composition}
+                        onChange={(e) => setAdvancedParams(prev => ({ ...prev, composition: e.target.value }))}
+                      >
+                        <option value="">请选择构图</option>
+                        {compositions.map(comp => (
+                          <option key={comp} value={comp}>{comp}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="setting-item">
+                      <label className="setting-label">光影</label>
+                      <select
+                        className="setting-select"
+                        value={advancedParams.lighting}
+                        onChange={(e) => setAdvancedParams(prev => ({ ...prev, lighting: e.target.value }))}
+                      >
+                        <option value="">请选择光影</option>
+                        {lightings.map(light => (
+                          <option key={light} value={light}>{light}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="setting-item">
+                      <label className="setting-label">情绪</label>
+                      <select
+                        className="setting-select"
+                        value={advancedParams.mood}
+                        onChange={(e) => setAdvancedParams(prev => ({ ...prev, mood: e.target.value }))}
+                      >
+                        <option value="">请选择情绪</option>
+                        {moods.map(mood => (
+                          <option key={mood} value={mood}>{mood}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* 生成数量 */}
+              <div className="setting-item">
+                <label className="setting-label">生成数量</label>
+                <select
+                  className="setting-select"
+                  value={imageCount}
+                  onChange={(e) => setImageCount(Number(e.target.value))}
+                >
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(count => (
+                    <option key={count} value={count}>{count} 张</option>
+                  ))}
+                </select>
+              </div>
+
               <button 
                 className="generate-button"
                 onClick={generateImages}
@@ -558,13 +605,13 @@ function App({ requireAuth }) {
               >
                 {loading ? '生成中...' : '开始生成'}
               </button>
-            </div>
-            
-            <div className="expiry-notice">
-              ⏰ 生成结果保存24小时，请及时下载
-            </div>
+              
+              <div className="expiry-notice">
+                ⏰ 生成结果保存24小时，请及时下载
+              </div>
 
-            {error && <div className="error-message">{error}</div>}
+              {error && <div className="error-message">{error}</div>}
+            </div>
           </div>
         </div>
       </section>

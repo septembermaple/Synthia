@@ -257,6 +257,121 @@ body {
   margin: 0 auto;
 }
 
+.upload-container-new {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 2rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.upload-left {
+  min-height: 450px;
+}
+
+.upload-right {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-panel {
+  padding: 1.25rem;
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  border: 1px solid var(--glass-border);
+  height: 100%;
+}
+
+.setting-item {
+  margin-bottom: 1rem;
+}
+
+.setting-item:last-child {
+  margin-bottom: 0;
+}
+
+.setting-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 0.4rem;
+}
+
+.setting-select {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+}
+
+.setting-select:hover {
+  border-color: var(--accent-color);
+}
+
+.setting-select:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  background-color: rgba(0, 212, 255, 0.05);
+}
+
+.setting-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.setting-select option {
+  background: var(--secondary-bg);
+  color: var(--text-primary);
+  padding: 0.5rem;
+}
+
+.setting-select optgroup {
+  background: var(--secondary-bg);
+  color: var(--accent-color);
+  font-weight: 600;
+  padding: 0.25rem;
+}
+
+.settings-section {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+}
+
+.settings-section-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-color);
+  margin-bottom: 0.75rem;
+}
+
+.settings-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 0;
+}
+
+.settings-section-header .settings-section-title {
+  margin-bottom: 0;
+}
+
 .upload-box {
   position: relative;
   border: 2px dashed var(--glass-border);
@@ -863,6 +978,28 @@ body {
   
   .tab-item {
     padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
+  
+  .upload-container-new {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  
+  .upload-left {
+    min-height: 320px;
+  }
+  
+  .settings-panel {
+    padding: 1rem;
+  }
+  
+  .setting-label {
+    font-size: 0.8rem;
+  }
+  
+  .setting-select {
+    padding: 0.6rem 0.7rem;
     font-size: 0.85rem;
   }
 }
