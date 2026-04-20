@@ -259,14 +259,14 @@ body {
 
 .upload-container-new {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: 1fr 1fr;
   gap: 2rem;
-  max-width: 1100px;
+  max-width: 1000px;
   margin: 0 auto;
 }
 
 .upload-left {
-  min-height: 450px;
+  min-height: 400px;
 }
 
 .upload-right {
@@ -275,16 +275,62 @@ body {
 }
 
 .settings-panel {
-  padding: 1.25rem;
+  padding: 0;
   background: var(--glass-bg);
   backdrop-filter: blur(10px);
   border-radius: 16px;
   border: 1px solid var(--glass-border);
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.settings-tab {
+  flex: 1;
+  padding: 1rem;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.settings-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.settings-tab.active {
+  color: var(--accent-color);
+  background: rgba(0, 212, 255, 0.05);
+}
+
+.settings-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent-gradient);
+}
+
+.settings-content {
+  padding: 1.25rem;
+  flex: 1;
 }
 
 .setting-item {
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 .setting-item:last-child {
@@ -296,24 +342,24 @@ body {
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--text-primary);
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.5rem;
 }
 
 .setting-select {
   width: 100%;
-  padding: 0.65rem 0.75rem;
+  padding: 0.75rem 1rem;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--glass-border);
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   cursor: pointer;
   transition: all 0.3s ease;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 0.75rem center;
-  padding-right: 2rem;
+  background-position: right 1rem center;
+  padding-right: 2.5rem;
 }
 
 .setting-select:hover {
@@ -370,6 +416,11 @@ body {
 
 .settings-section-header .settings-section-title {
   margin-bottom: 0;
+}
+
+.generate-button {
+  margin: 1.25rem;
+  margin-top: auto;
 }
 
 .upload-box {
@@ -612,7 +663,7 @@ body {
 }
 
 .expiry-notice {
-  margin-top: 1rem;
+  margin: 0 1.25rem 1rem;
   padding: 0.75rem 1rem;
   background: rgba(255, 193, 7, 0.1);
   border: 1px solid rgba(255, 193, 7, 0.3);
@@ -713,6 +764,7 @@ body {
 
 /* Error Message */
 .error-message {
+  margin: 0 1.25rem 1rem;
   padding: 1rem 1.5rem;
   background: rgba(255, 59, 48, 0.1);
   border: 1px solid rgba(255, 59, 48, 0.3);
@@ -991,6 +1043,15 @@ body {
   }
   
   .settings-panel {
+    min-height: 400px;
+  }
+  
+  .settings-tab {
+    padding: 0.75rem;
+    font-size: 0.9rem;
+  }
+  
+  .settings-content {
     padding: 1rem;
   }
   
@@ -1001,6 +1062,15 @@ body {
   .setting-select {
     padding: 0.6rem 0.7rem;
     font-size: 0.85rem;
+  }
+  
+  .generate-button {
+    margin: 1rem;
+  }
+  
+  .expiry-notice,
+  .error-message {
+    margin: 0 1rem 1rem;
   }
 }
 

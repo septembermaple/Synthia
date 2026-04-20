@@ -235,12 +235,6 @@ function App({ requireAuth }) {
       return;
     }
 
-    const consumeResult = await consumePoints(pointsRequired, `生成${imageCount}张图片`);
-    if (!consumeResult.success) {
-      setError(consumeResult.message);
-      return;
-    }
-
     setLoading(true);
     setError('');
     setResults([]);
@@ -268,6 +262,10 @@ function App({ requireAuth }) {
       );
 
       if (generatedImages.length > 0) {
+        const consumeResult = await consumePoints(pointsRequired, `生成${imageCount}张图片`);
+        if (!consumeResult.success) {
+          console.error('积分扣除失败:', consumeResult.message);
+        }
         await saveGenerationRecord(generatedImages, finalPrompt.substring(0, 100), basicParams.scene, imageCount);
       } else {
         throw new Error('未获取到生成的图片');
@@ -457,146 +455,150 @@ function App({ requireAuth }) {
           {/* Right: Settings Panel */}
           <div className="upload-right">
             <div className="settings-panel">
-              {/* 人脸保持 */}
-              <div className="setting-item">
-                <label className="setting-label">人脸保持</label>
-                <label className="checkbox-option">
-                  <input
-                    type="checkbox"
-                    checked={keepFace}
-                    onChange={(e) => setKeepFace(e.target.checked)}
-                  />
-                  <span>保持原有人物五官特征</span>
-                </label>
+              {/* Tabs */}
+              <div className="settings-tabs">
+                <button 
+                  className={`settings-tab ${!showAdvanced ? 'active' : ''}`}
+                  onClick={() => setShowAdvanced(false)}
+                >
+                  基础设置
+                </button>
+                <button 
+                  className={`settings-tab ${showAdvanced ? 'active' : ''}`}
+                  onClick={() => setShowAdvanced(true)}
+                >
+                  高级设置
+                </button>
               </div>
 
-              {/* 基础设置 */}
-              <div className="settings-section">
-                <h3 className="settings-section-title">基础设置</h3>
-                
-                <div className="setting-item">
-                  <label className="setting-label">场景主题</label>
-                  <select
-                    className="setting-select"
-                    value={basicParams.sceneCategory && basicParams.scene ? `${basicParams.sceneCategory}|||${basicParams.scene}` : ''}
-                    onChange={(e) => {
-                      if (!e.target.value) {
+              {/* 基础设置内容 */}
+              {!showAdvanced && (
+                <div className="settings-content">
+                  <div className="setting-item">
+                    <label className="setting-label">场景主题</label>
+                    <select
+                      className="setting-select"
+                      value={basicParams.sceneCategory && basicParams.scene ? `${basicParams.sceneCategory}|||${basicParams.scene}` : ''}
+                      onChange={(e) => {
+                        if (!e.target.value) {
+                          setBasicParams(prev => ({ 
+                            ...prev, 
+                            sceneCategory: '',
+                            scene: '',
+                            visualStyle: ''
+                          }));
+                          return;
+                        }
+                        const [category, sceneName] = e.target.value.split('|||');
+                        const sceneData = sceneCategories[category]?.find(s => s.name === sceneName);
                         setBasicParams(prev => ({ 
                           ...prev, 
-                          sceneCategory: '',
-                          scene: '',
-                          visualStyle: ''
+                          sceneCategory: category,
+                          scene: sceneName,
+                          visualStyle: sceneData ? sceneData.style : prev.visualStyle
                         }));
-                        return;
-                      }
-                      const [category, sceneName] = e.target.value.split('|||');
-                      const sceneData = sceneCategories[category]?.find(s => s.name === sceneName);
-                      setBasicParams(prev => ({ 
-                        ...prev, 
-                        sceneCategory: category,
-                        scene: sceneName,
-                        visualStyle: sceneData ? sceneData.style : prev.visualStyle
-                      }));
-                    }}
-                  >
-                    <option value="">请选择场景</option>
-                    {Object.entries(sceneCategories).map(([category, scenes]) => (
-                      <optgroup key={category} label={category}>
-                        {scenes.map(scene => (
-                          <option key={scene.name} value={`${category}|||${scene.name}`}>
-                            {scene.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
+                      }}
+                    >
+                      <option value="">请选择场景</option>
+                      {Object.entries(sceneCategories).map(([category, scenes]) => (
+                        <optgroup key={category} label={category}>
+                          {scenes.map(scene => (
+                            <option key={scene.name} value={`${category}|||${scene.name}`}>
+                              {scene.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="setting-item">
+                    <label className="setting-label">生成数量</label>
+                    <select
+                      className="setting-select"
+                      value={imageCount}
+                      onChange={(e) => setImageCount(Number(e.target.value))}
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(count => (
+                        <option key={count} value={count}>{count} 张</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="setting-item">
+                    <label className="setting-label">人脸保持</label>
+                    <label className="checkbox-option">
+                      <input
+                        type="checkbox"
+                        checked={keepFace}
+                        onChange={(e) => setKeepFace(e.target.checked)}
+                      />
+                      <span>保持原有人物五官特征</span>
+                    </label>
+                  </div>
                 </div>
+              )}
 
-                <div className="setting-item">
-                  <label className="setting-label">视觉风格</label>
-                  <select
-                    className="setting-select"
-                    value={basicParams.visualStyle}
-                    onChange={(e) => setBasicParams(prev => ({ ...prev, visualStyle: e.target.value }))}
-                  >
-                    <option value="">请选择风格</option>
-                    {visualStyles.map(style => (
-                      <option key={style} value={style}>{style}</option>
-                    ))}
-                  </select>
+              {/* 高级设置内容 */}
+              {showAdvanced && (
+                <div className="settings-content">
+                  <div className="setting-item">
+                    <label className="setting-label">视觉风格</label>
+                    <select
+                      className="setting-select"
+                      value={basicParams.visualStyle}
+                      onChange={(e) => setBasicParams(prev => ({ ...prev, visualStyle: e.target.value }))}
+                    >
+                      <option value="">请选择风格</option>
+                      {visualStyles.map(style => (
+                        <option key={style} value={style}>{style}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="setting-item">
+                    <label className="setting-label">构图</label>
+                    <select
+                      className="setting-select"
+                      value={advancedParams.composition}
+                      onChange={(e) => setAdvancedParams(prev => ({ ...prev, composition: e.target.value }))}
+                    >
+                      <option value="">请选择构图</option>
+                      {compositions.map(comp => (
+                        <option key={comp} value={comp}>{comp}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="setting-item">
+                    <label className="setting-label">光影</label>
+                    <select
+                      className="setting-select"
+                      value={advancedParams.lighting}
+                      onChange={(e) => setAdvancedParams(prev => ({ ...prev, lighting: e.target.value }))}
+                    >
+                      <option value="">请选择光影</option>
+                      {lightings.map(light => (
+                        <option key={light} value={light}>{light}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="setting-item">
+                    <label className="setting-label">情绪</label>
+                    <select
+                      className="setting-select"
+                      value={advancedParams.mood}
+                      onChange={(e) => setAdvancedParams(prev => ({ ...prev, mood: e.target.value }))}
+                    >
+                      <option value="">请选择情绪</option>
+                      {moods.map(mood => (
+                        <option key={mood} value={mood}>{mood}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              </div>
-
-              {/* 高级设置 */}
-              <div className="settings-section">
-                <div 
-                  className="settings-section-header"
-                  onClick={() => setShowAdvanced(!showAdvanced)}
-                >
-                  <h3 className="settings-section-title">高级设置</h3>
-                  <span className={`expand-icon ${showAdvanced ? 'expanded' : ''}`}>▼</span>
-                </div>
-                
-                {showAdvanced && (
-                  <>
-                    <div className="setting-item">
-                      <label className="setting-label">构图</label>
-                      <select
-                        className="setting-select"
-                        value={advancedParams.composition}
-                        onChange={(e) => setAdvancedParams(prev => ({ ...prev, composition: e.target.value }))}
-                      >
-                        <option value="">请选择构图</option>
-                        {compositions.map(comp => (
-                          <option key={comp} value={comp}>{comp}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="setting-item">
-                      <label className="setting-label">光影</label>
-                      <select
-                        className="setting-select"
-                        value={advancedParams.lighting}
-                        onChange={(e) => setAdvancedParams(prev => ({ ...prev, lighting: e.target.value }))}
-                      >
-                        <option value="">请选择光影</option>
-                        {lightings.map(light => (
-                          <option key={light} value={light}>{light}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="setting-item">
-                      <label className="setting-label">情绪</label>
-                      <select
-                        className="setting-select"
-                        value={advancedParams.mood}
-                        onChange={(e) => setAdvancedParams(prev => ({ ...prev, mood: e.target.value }))}
-                      >
-                        <option value="">请选择情绪</option>
-                        {moods.map(mood => (
-                          <option key={mood} value={mood}>{mood}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* 生成数量 */}
-              <div className="setting-item">
-                <label className="setting-label">生成数量</label>
-                <select
-                  className="setting-select"
-                  value={imageCount}
-                  onChange={(e) => setImageCount(Number(e.target.value))}
-                >
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(count => (
-                    <option key={count} value={count}>{count} 张</option>
-                  ))}
-                </select>
-              </div>
+              )}
 
               <button 
                 className="generate-button"
