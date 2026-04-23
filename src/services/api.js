@@ -25,7 +25,6 @@ class ApiService {
     
     const config = {
       ...options,
-      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         ...options.headers,
@@ -130,6 +129,59 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ scene, style }),
     });
+  }
+
+  async adminMe() {
+    return await this.request('/api/admin/me');
+  }
+
+  async adminListModels() {
+    return await this.request('/api/admin/models');
+  }
+
+  async adminCreateModel(data) {
+    return await this.request('/api/admin/models', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async adminUpdateModel(id, data) {
+    return await this.request(`/api/admin/models/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async adminDeleteModel(id) {
+    return await this.request(`/api/admin/models/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async adminSetDefaultModel(id) {
+    return await this.request(`/api/admin/models/${id}/set-default`, {
+      method: 'POST',
+    });
+  }
+
+  async adminStatsOverview() {
+    return await this.request('/api/admin/stats/overview');
+  }
+
+  async adminStatsUsage(days = 30, modelType = '') {
+    const params = new URLSearchParams();
+    if (days) params.set('days', String(days));
+    if (modelType) params.set('model_type', modelType);
+    return await this.request(`/api/admin/stats/usage?${params.toString()}`);
+  }
+
+  async adminStatsTopUsers(limit = 10) {
+    return await this.request(`/api/admin/stats/top-users?limit=${limit}`);
+  }
+
+  async adminStatsModels() {
+    return await this.request('/api/admin/stats/models');
   }
 
   async generateImages(prompt, imageBase64, imageCount, onImageGenerated) {

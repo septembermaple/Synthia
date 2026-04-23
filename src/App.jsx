@@ -92,7 +92,7 @@ const lightings = [
 const moods = ['自然感', '冷酷感', '忧郁感', '互动感', '沉思感'];
 
 function App({ requireAuth }) {
-  const { user, logout, consumePoints, saveGenerationRecord } = useAuth();
+  const { user, isAdmin, logout, saveGenerationRecord, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [images, setImages] = useState([]);
   const [results, setResults] = useState([]);
@@ -262,10 +262,8 @@ function App({ requireAuth }) {
       );
 
       if (generatedImages.length > 0) {
-        const consumeResult = await consumePoints(pointsRequired, `生成${imageCount}张图片`);
-        if (!consumeResult.success) {
-          console.error('积分扣除失败:', consumeResult.message);
-        }
+        // 积分已由服务端在生成时原子扣减，此处刷新用户积分余额
+        await refreshUser();
         await saveGenerationRecord(generatedImages, finalPrompt.substring(0, 100), basicParams.scene, imageCount);
       } else {
         throw new Error('未获取到生成的图片');
@@ -297,6 +295,9 @@ function App({ requireAuth }) {
               <span className="user-points-display">💰 {user.points || 0} 积分</span>
             </div>
             <button className="dashboard-btn" onClick={() => navigate('/dashboard')}>用户中心</button>
+            {isAdmin && (
+              <button className="dashboard-btn" onClick={() => navigate('/admin')}>管理后台</button>
+            )}
             <button className="logout-btn" onClick={logout}>退出</button>
           </>
         ) : (

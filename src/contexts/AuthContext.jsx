@@ -6,11 +6,22 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  const checkAdmin = async () => {
+    try {
+      const r = await api.adminMe();
+      setIsAdmin(!!r?.isAdmin);
+    } catch {
+      setIsAdmin(false);
+    }
+  };
 
   useEffect(() => {
     api.getCurrentUser()
       .then(userData => {
         setUser(userData);
+        if (userData) checkAdmin();
       })
       .catch(() => {
         setUser(null);
@@ -20,6 +31,16 @@ export const AuthProvider = ({ children }) => {
       });
   }, []);
 
+  const refreshUser = async () => {
+    try {
+      const userData = await api.getCurrentUser();
+      setUser(userData);
+      return userData;
+    } catch {
+      return null;
+    }
+  };
+
   const sendVerificationCode = async (phone) => {
     return { success: true, message: '验证码已发送' };
   };
@@ -28,6 +49,7 @@ export const AuthProvider = ({ children }) => {
     const data = await api.login(phone, code);
     if (data.user) {
       setUser(data.user);
+      checkAdmin();
     }
     return data;
   };
@@ -36,6 +58,7 @@ export const AuthProvider = ({ children }) => {
     const data = await api.loginWithPassword(phone, password);
     if (data.success && data.user) {
       setUser(data.user);
+      checkAdmin();
     }
     return data;
   };
@@ -51,13 +74,19 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     await api.logout();
     setUser(null);
+    setIsAdmin(false);
   };
 
   const updatePassword = async (oldPassword, newPassword) => {
     if (!user) return { success: false, message: '未登录' };
     
     try {
-      return await api.updatePassword(oldPassword, newPassword);
+      const result = await api.updatePassword(oldPassword, newPassword);
+      // 后端会返回新 token（旧 token 已失效），替换本地存储
+      if (result?.token) {
+        api.setToken(result.token);
+      }
+      return result;
     } catch (error) {
       return { success: false, message: error.message || '密码修改失败' };
     }
@@ -118,6 +147,7 @@ export const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider value={{
       user,
+      isAdmin,
       login,
       loginWithPassword,
       checkUserExists,
@@ -131,7 +161,8 @@ export const AuthProvider = ({ children }) => {
       getTransactions,
       saveGenerationRecord,
       getGenerationRecords,
-      deleteGenerationRecord
+      deleteGenerationRecord,
+      refreshUser
     }}>
       {children}
     </AuthContext.Provider>
