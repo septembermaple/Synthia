@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import JSZip from 'jszip';
 
 function Dashboard() {
-  const { user, logout, updatePassword, addPoints, getTransactions, getGenerationRecords, deleteGenerationRecord } = useAuth();
+  const { user, isAdmin, logout, updatePassword, addPoints, deleteAccount, getTransactions, getGenerationRecords, deleteGenerationRecord } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -14,6 +14,8 @@ function Dashboard() {
   const [message, setMessage] = useState('');
   const [generationRecords, setGenerationRecords] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [deleteForm, setDeleteForm] = useState({ password: '', confirm: '' });
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -107,34 +109,68 @@ function Dashboard() {
     }
   };
 
-  const handlePasswordUpdate = () => {
+  const handlePasswordUpdate = async () => {
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       setMessage('两次输入的密码不一致');
       return;
     }
-    if (passwordForm.newPassword.length < 6) {
-      setMessage('密码长度至少6位');
+    if (passwordForm.newPassword.length < 6 || passwordForm.newPassword.length > 128) {
+      setMessage('密码长度需为 6~128 位');
+      return;
+    }
+    if (!/[A-Za-z]/.test(passwordForm.newPassword) || !/\d/.test(passwordForm.newPassword)) {
+      setMessage('密码需同时包含字母和数字');
       return;
     }
 
-    const result = updatePassword(passwordForm.oldPassword, passwordForm.newPassword);
-    if (result.success) {
-      setMessage('密码修改成功');
-      setShowPasswordModal(false);
-      setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
-    } else {
-      setMessage(result.message);
+    try {
+      const result = await updatePassword(passwordForm.oldPassword, passwordForm.newPassword);
+      if (result?.success) {
+        setMessage('密码修改成功');
+        setShowPasswordModal(false);
+        setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+      } else {
+        setMessage(result?.message || '密码修改失败');
+      }
+    } catch (err) {
+      setMessage(err?.message || '密码修改失败');
     }
   };
 
   const handleRecharge = async () => {
-    const result = await addPoints(rechargeAmount, `充值${rechargeAmount}积分`);
-    if (result.success) {
-      setMessage(result.message);
+    const amount = Number(rechargeAmount);
+    if (!Number.isInteger(amount) || amount <= 0 || amount > 100000) {
+      setMessage('请输入合法金额（1~100000）');
+      return;
+    }
+    const result = await addPoints(amount, `充值${amount}积分`);
+    if (result?.success) {
+      setMessage(result.message || '充值成功');
       setShowRechargeModal(false);
       setRechargeAmount(100);
     } else {
-      setMessage(result.message || '充值失败');
+      setMessage(result?.message || '充值失败');
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteForm.confirm !== 'DELETE') {
+      setMessage('请输入大写 DELETE 以确认');
+      return;
+    }
+    setDeleteLoading(true);
+    try {
+      const result = await deleteAccount(deleteForm.password, deleteForm.confirm);
+      if (result?.success) {
+        await logout();
+        navigate('/login');
+      } else {
+        setMessage(result?.message || '注销失败');
+      }
+    } catch (err) {
+      setMessage(err?.message || '注销失败');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -176,12 +212,14 @@ function Dashboard() {
             >
               🔐 修改密码
             </button>
-            <button
-              className={`menu-item ${activeTab === 'recharge' ? 'active' : ''}`}
-              onClick={() => setActiveTab('recharge')}
-            >
-              💳 积分充值
-            </button>
+            {isAdmin && (
+              <button
+                className={`menu-item ${activeTab === 'recharge' ? 'active' : ''}`}
+                onClick={() => setActiveTab('recharge')}
+              >
+                💳 积分充值
+              </button>
+            )}
             <button
               className={`menu-item ${activeTab === 'history' ? 'active' : ''}`}
               onClick={() => setActiveTab('history')}
@@ -193,6 +231,12 @@ function Dashboard() {
               onClick={() => setActiveTab('generations')}
             >
               🖼️ 生成历史
+            </button>
+            <button
+              className={`menu-item ${activeTab === 'danger' ? 'active' : ''}`}
+              onClick={() => setActiveTab('danger')}
+            >
+              ⚠️ 账号安全
             </button>
             <button className="menu-item logout" onClick={logout}>
               🚪 退出登录
@@ -285,13 +329,13 @@ function Dashboard() {
             </div>
           )}
 
-          {activeTab === 'recharge' && (
+          {activeTab === 'recharge' && isAdmin && (
             <div className="recharge-section">
-              <h2>积分充值</h2>
+              <h2>积分充值（管理员）</h2>
               <div className="current-points">
                 当前积分：<span className="highlight">{user.points}</span>
               </div>
-              
+
               <div className="recharge-options">
                 <h3>选择充值金额</h3>
                 <div className="amount-grid">
@@ -305,7 +349,7 @@ function Dashboard() {
                     </button>
                   ))}
                 </div>
-                
+
                 <div className="custom-amount">
                   <label>自定义金额</label>
                   <input
@@ -319,10 +363,53 @@ function Dashboard() {
                 <button className="recharge-btn" onClick={handleRecharge}>
                   立即充值 {rechargeAmount} 积分
                 </button>
-                
+
                 <p className="recharge-note">
-                  注：当前为演示模式，充值将直接到账。正式环境需对接支付接口。
+                  注：仅管理员可见。普通用户充值需后续接入支付接口。
                 </p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'danger' && (
+            <div className="danger-section">
+              <h2>账号安全</h2>
+              <div className="form-container" style={{ maxWidth: 520 }}>
+                <p style={{ opacity: 0.8, marginBottom: '1rem' }}>
+                  注销账号会永久删除该手机号下的所有积分、生成记录、消费记录与提示词使用记录，且不可恢复。
+                </p>
+                {!!user.points && (
+                  <p style={{ color: '#ffb84d' }}>
+                    您当前还剩 <strong>{user.points}</strong> 积分，注销后将一并清空。
+                  </p>
+                )}
+                <div className="form-group">
+                  <label>当前密码（如已设置）</label>
+                  <input
+                    type="password"
+                    value={deleteForm.password}
+                    onChange={(e) => setDeleteForm(prev => ({ ...prev, password: e.target.value }))}
+                    placeholder="未设置密码可留空"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>请输入大写 <code>DELETE</code> 以确认</label>
+                  <input
+                    type="text"
+                    value={deleteForm.confirm}
+                    onChange={(e) => setDeleteForm(prev => ({ ...prev, confirm: e.target.value }))}
+                    placeholder="DELETE"
+                  />
+                </div>
+                {message && <div className="message">{message}</div>}
+                <button
+                  className="submit-btn"
+                  style={{ background: '#d63031' }}
+                  disabled={deleteLoading}
+                  onClick={handleDeleteAccount}
+                >
+                  {deleteLoading ? '注销中...' : '永久注销账号'}
+                </button>
               </div>
             </div>
           )}

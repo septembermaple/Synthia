@@ -74,6 +74,27 @@ CREATE TABLE IF NOT EXISTS api_usage_logs (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 已使用提示词记录（避免给同一用户重复推送相同提示词）
+CREATE TABLE IF NOT EXISTS used_prompts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  prompt_id TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, prompt_id)
+);
+CREATE INDEX IF NOT EXISTS idx_used_prompts_user ON used_prompts(user_id);
+
+-- 管理员操作审计日志
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  admin_user_id INTEGER,
+  admin_phone TEXT DEFAULT '',
+  action TEXT NOT NULL,                 -- e.g. model.create / model.update / points.add
+  target TEXT DEFAULT '',
+  payload TEXT DEFAULT '',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 创建索引
 CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
@@ -87,9 +108,5 @@ CREATE INDEX IF NOT EXISTS idx_usage_user ON api_usage_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_usage_model ON api_usage_logs(model_id);
 CREATE INDEX IF NOT EXISTS idx_usage_created ON api_usage_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_type ON api_usage_logs(model_type);
-
--- 插入测试账户（生产环境请删除）
-INSERT OR IGNORE INTO users (phone, password, points) VALUES 
-  ('13111111111', '', 100),
-  ('13222222222', '', 100),
-  ('13333333333', '', 100);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_admin ON admin_audit_logs(admin_user_id);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_logs(created_at);

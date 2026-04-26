@@ -11,6 +11,7 @@ function Login() {
   const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -52,7 +53,7 @@ function Login() {
 
   const handleCodeLogin = async (e) => {
     e.preventDefault();
-    
+
     if (!phone || phone.length !== 11) {
       setError('请输入正确的手机号');
       return;
@@ -60,6 +61,11 @@ function Login() {
 
     if (!code || code.length !== 6) {
       setError('请输入6位验证码');
+      return;
+    }
+
+    if (!agreed) {
+      setError('请先阅读并同意《用户协议》和《隐私政策》');
       return;
     }
 
@@ -84,7 +90,7 @@ function Login() {
 
   const handlePasswordLogin = async (e) => {
     e.preventDefault();
-    
+
     if (!phone || phone.length !== 11) {
       setError('请输入正确的手机号');
       return;
@@ -92,6 +98,11 @@ function Login() {
 
     if (!password) {
       setError('请输入密码');
+      return;
+    }
+
+    if (!agreed) {
+      setError('请先阅读并同意《用户协议》和《隐私政策》');
       return;
     }
 
@@ -112,9 +123,13 @@ function Login() {
     }
   };
 
-  const handleSetPassword = () => {
-    if (newPassword.length < 6) {
-      setPasswordError('密码长度至少6位');
+  const handleSetPassword = async () => {
+    if (newPassword.length < 6 || newPassword.length > 128) {
+      setPasswordError('密码长度需为 6~128 位');
+      return;
+    }
+    if (!/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+      setPasswordError('密码需同时包含字母和数字');
       return;
     }
 
@@ -123,12 +138,20 @@ function Login() {
       return;
     }
 
-    const result = updatePassword('', newPassword);
-    if (result.success) {
-      setShowPasswordModal(false);
-      navigate('/');
-    } else {
-      setPasswordError(result.message);
+    setLoading(true);
+    setPasswordError('');
+    try {
+      const result = await updatePassword('', newPassword);
+      if (result?.success) {
+        setShowPasswordModal(false);
+        navigate('/');
+      } else {
+        setPasswordError(result?.message || '设置密码失败');
+      }
+    } catch (err) {
+      setPasswordError(err?.message || '设置密码失败');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -248,6 +271,28 @@ function Login() {
             </button>
           </form>
         )}
+
+        <label className="agreement-row" style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          marginTop: '0.75rem',
+          fontSize: '12px',
+          opacity: 0.85,
+        }}>
+          <input
+            type="checkbox"
+            checked={agreed}
+            onChange={(e) => setAgreed(e.target.checked)}
+          />
+          <span>
+            我已阅读并同意
+            <a href="/legal/terms" target="_blank" rel="noopener noreferrer" style={{ color: '#6c5ce7', margin: '0 4px' }}>《用户协议》</a>
+            和
+            <a href="/legal/privacy" target="_blank" rel="noopener noreferrer" style={{ color: '#6c5ce7', margin: '0 4px' }}>《隐私政策》</a>
+            ，并承诺所上传图片已获得肖像权许可
+          </span>
+        </label>
 
         <p className="login-hint">
           {loginType === 'code' ? '首次登录将自动注册账号' : '仅限已设置密码的用户'}

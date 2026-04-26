@@ -1,5 +1,17 @@
 const PBKDF2_ITERATIONS = 100000;
 const POINTS_PER_IMAGE_DEFAULT = 10;
+const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
+const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
+// 密码占位（用于禁用 / 未设置密码场景），任何输入都无法通过 verifyPassword 校验
+const PASSWORD_DISABLED_MARKER = 'pbkdf2$disabled$00$00';
+
+const PROMPT_BLACKLIST = [
+  '色情', '裸体', '裸露', '性器官', '强奸', '乱伦', '儿童色情', '未成年裸',
+  '暴力', '血腥', '斩首', '自杀', '杀人',
+  '毒品', '吸毒', '冰毒', '海洛因',
+  '恐怖', '炸弹', '枪支', '爆炸物制作',
+  '法轮功', '反共', '台独', '港独', '藏独',
+];
 
 export default {
   async fetch(request, env, ctx) {
@@ -34,8 +46,22 @@ export default {
       logError(env, 'top-level', error);
       return jsonResponse({ error: maskError(env, error) }, 500, corsHeaders);
     }
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runScheduledCleanup(env));
   }
 };
+
+async function runScheduledCleanup(env) {
+  try {
+    await env.DB.prepare('DELETE FROM generations WHERE expires_at < CURRENT_TIMESTAMP').run();
+    const cutoff = Math.floor(Date.now() / 1000) - 86400;
+    await env.DB.prepare('DELETE FROM auth_rate_limits WHERE window_start < ?').bind(cutoff).run();
+  } catch (error) {
+    logError(env, 'scheduled-cleanup', error);
+  }
+}
 
 function securityHeaders() {
   return {
@@ -44,7 +70,49 @@ function securityHeaders() {
     'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
     'X-Frame-Options': 'DENY',
     'Permissions-Policy': 'geolocation=(), camera=(), microphone=()',
+    'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
   };
+}
+
+function isStrongPassword(password) {
+  if (typeof password !== 'string') return false;
+  if (password.length < 6 || password.length > 128) return false;
+  if (!/[A-Za-z]/.test(password)) return false;
+  if (!/\d/.test(password)) return false;
+  return true;
+}
+
+function isImageDataUrl(value) {
+  if (typeof value !== 'string') return false;
+  // 形如 data:image/jpeg;base64,XXXX
+  const m = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(value);
+  if (!m) return false;
+  // 简单 magic-number 校验，避免上游传入伪造内容
+  const b64 = m[2];
+  // 取头 8 字节足够辨识
+  const head = b64.slice(0, 16);
+  let bin;
+  try { bin = atob(head); } catch { return false; }
+  if (bin.length < 4) return false;
+  const b0 = bin.charCodeAt(0), b1 = bin.charCodeAt(1), b2 = bin.charCodeAt(2), b3 = bin.charCodeAt(3);
+  // JPEG: FF D8 FF
+  if (b0 === 0xFF && b1 === 0xD8 && b2 === 0xFF) return true;
+  // PNG: 89 50 4E 47
+  if (b0 === 0x89 && b1 === 0x50 && b2 === 0x4E && b3 === 0x47) return true;
+  // WEBP: "RIFF....WEBP" - 头 4 字节是 RIFF
+  if (b0 === 0x52 && b1 === 0x49 && b2 === 0x46 && b3 === 0x46) return true;
+  return false;
+}
+
+function containsBlockedKeyword(text) {
+  if (typeof text !== 'string' || !text) return null;
+  const lower = text.toLowerCase();
+  for (const word of PROMPT_BLACKLIST) {
+    if (text.includes(word) || lower.includes(word.toLowerCase())) {
+      return word;
+    }
+  }
+  return null;
 }
 
 function jsonResponse(data, status, corsHeaders) {
@@ -209,12 +277,19 @@ async function handleImageGeneration(request, env, corsHeaders) {
   if (!isNonEmptyString(prompt, 4000)) {
     return jsonResponse({ error: '提示词长度非法' }, 400, corsHeaders);
   }
+  const blocked = containsBlockedKeyword(prompt);
+  if (blocked) {
+    return jsonResponse({ error: '提示词包含敏感内容，已拒绝' }, 400, corsHeaders);
+  }
   if (typeof imageBase64 !== 'string' || imageBase64.length === 0) {
     return jsonResponse({ error: '图片参数无效' }, 400, corsHeaders);
   }
   // 限制 base64 图片大小：约 6MB（base64 ≈ 原文 * 1.37）
   if (imageBase64.length > 6 * 1024 * 1024) {
     return jsonResponse({ error: '图片过大，请压缩后重试' }, 413, corsHeaders);
+  }
+  if (!isImageDataUrl(imageBase64)) {
+    return jsonResponse({ error: '图片格式无效，仅支持 JPG/PNG/WEBP' }, 400, corsHeaders);
   }
   const safeImageCount = parsePositiveInt(imageCount, 4);
   if (!safeImageCount) {
@@ -348,6 +423,9 @@ async function handleGeneratePrompt(request, env, corsHeaders) {
   if (style !== undefined && style !== null && (typeof style !== 'string' || style.length > 200)) {
     return jsonResponse({ error: '风格参数无效' }, 400, corsHeaders);
   }
+  if (containsBlockedKeyword(scene) || containsBlockedKeyword(style || '')) {
+    return jsonResponse({ error: '场景或风格包含敏感内容' }, 400, corsHeaders);
+  }
 
   const arkApiKey = env.ARK_API_KEY || env.DOUBAO_API_KEY;
   if (!arkApiKey) {
@@ -439,8 +517,12 @@ async function handleRequest(request, env, path, method) {
     return handleLogout();
   } else if (path === '/api/auth/me' && method === 'GET') {
     return await handleGetCurrentUser(request, env);
+  } else if (path === '/api/auth/refresh' && method === 'POST') {
+    return await handleRefreshToken(request, env);
   } else if (path === '/api/auth/update-password' && method === 'POST') {
     return await handleUpdatePassword(request, env);
+  } else if (path === '/api/auth/delete-account' && method === 'POST') {
+    return await handleDeleteAccount(request, env);
   } else if (path === '/api/points/balance' && method === 'GET') {
     return await handleGetBalance(request, env);
   } else if (path === '/api/points/add' && method === 'POST') {
@@ -504,25 +586,25 @@ function buildCorsHeaders(request, env) {
     .filter(Boolean);
   const isBrowserRequest = !!origin;
   const isAllowed = !isBrowserRequest || allowedOrigins.includes(origin);
-  const allowOrigin = isBrowserRequest ? (isAllowed ? origin : allowedOrigins[0] || 'null') : '*';
 
   const headers = {
-    'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Secret',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };
 
-  // 仅在来源被允许且为具体 Origin（非通配符）时，才允许携带凭据
-  if (isBrowserRequest && isAllowed) {
-    headers['Access-Control-Allow-Credentials'] = 'true';
+  if (isBrowserRequest) {
+    if (isAllowed) {
+      headers['Access-Control-Allow-Origin'] = origin;
+      headers['Access-Control-Allow-Credentials'] = 'true';
+    }
+    // 不被允许时不下发 Allow-Origin，浏览器会按 CORS 错误处理
+  } else {
+    // 非浏览器（curl 等）调用：不返回任何 Allow-Origin
   }
 
-  return {
-    isAllowed,
-    headers,
-  };
+  return { isAllowed, headers };
 }
 
 function base64UrlEncode(bytes) {
@@ -553,18 +635,11 @@ async function importHmacKey(secret) {
   );
 }
 
-async function generateToken(userId, env, tokenVersion = 0) {
+async function signJwt(payload, env) {
   const secret = env.JWT_SECRET;
   if (!secret) {
     throw new Error('JWT_SECRET未配置');
   }
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    sub: String(userId),
-    ver: Number(tokenVersion) || 0,
-    iat: now,
-    exp: now + 7 * 24 * 60 * 60
-  };
   const headerB64 = base64UrlEncodeString(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const payloadB64 = base64UrlEncodeString(JSON.stringify(payload));
   const signingInput = `${headerB64}.${payloadB64}`;
@@ -572,6 +647,36 @@ async function generateToken(userId, env, tokenVersion = 0) {
   const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(signingInput));
   const signatureB64 = base64UrlEncode(new Uint8Array(signature));
   return `${signingInput}.${signatureB64}`;
+}
+
+async function generateToken(userId, env, tokenVersion = 0) {
+  const now = Math.floor(Date.now() / 1000);
+  return await signJwt({
+    sub: String(userId),
+    ver: Number(tokenVersion) || 0,
+    typ: 'access',
+    iat: now,
+    exp: now + ACCESS_TOKEN_TTL_SECONDS,
+  }, env);
+}
+
+async function generateRefreshToken(userId, env, tokenVersion = 0) {
+  const now = Math.floor(Date.now() / 1000);
+  return await signJwt({
+    sub: String(userId),
+    ver: Number(tokenVersion) || 0,
+    typ: 'refresh',
+    iat: now,
+    exp: now + REFRESH_TOKEN_TTL_SECONDS,
+  }, env);
+}
+
+async function issueTokenPair(userId, env, tokenVersion = 0) {
+  const [token, refreshToken] = await Promise.all([
+    generateToken(userId, env, tokenVersion),
+    generateRefreshToken(userId, env, tokenVersion),
+  ]);
+  return { token, refreshToken };
 }
 
 function constantTimeEqual(a, b) {
@@ -585,23 +690,17 @@ function constantTimeEqual(a, b) {
   return diff === 0;
 }
 
-async function verifyTokenAndGetUserId(token, env) {
+async function decodeAndVerifyJwt(token, env, expectedType) {
   const secret = env.JWT_SECRET;
-  if (!secret) {
-    return null;
-  }
+  if (!secret) return null;
   const parts = typeof token === 'string' ? token.split('.') : [];
-  if (parts.length !== 3) {
-    return null;
-  }
+  if (parts.length !== 3) return null;
   const [headerB64, payloadB64, signatureB64] = parts;
   const signingInput = `${headerB64}.${payloadB64}`;
   const key = await importHmacKey(secret);
   const expectedSig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(signingInput));
   const expectedSigB64 = base64UrlEncode(new Uint8Array(expectedSig));
-  if (!constantTimeEqual(expectedSigB64, signatureB64)) {
-    return null;
-  }
+  if (!constantTimeEqual(expectedSigB64, signatureB64)) return null;
 
   let payload;
   try {
@@ -610,11 +709,13 @@ async function verifyTokenAndGetUserId(token, env) {
     return null;
   }
   const now = Math.floor(Date.now() / 1000);
-  if (!payload?.sub || !payload?.exp || payload.exp < now) {
-    return null;
+  if (!payload?.sub || !payload?.exp || payload.exp < now) return null;
+  if (expectedType && payload.typ && payload.typ !== expectedType) return null;
+  // 旧 token 兼容：未带 typ 的当成 access
+  if (expectedType === 'access' && !payload.typ) {
+    // pass - 兼容旧 token
   }
 
-  // 校验 tokenVersion：用户改密码后会递增 token_version，使旧 token 失效
   try {
     const user = await env.DB.prepare('SELECT token_version FROM users WHERE id = ?').bind(payload.sub).first();
     if (!user) return null;
@@ -622,11 +723,15 @@ async function verifyTokenAndGetUserId(token, env) {
     const payloadVer = Number(payload.ver || 0);
     if (currentVer !== payloadVer) return null;
   } catch (error) {
-    // 若列不存在（老库未迁移），放行以便向后兼容
     logError(env, 'token-version-check', error);
   }
 
-  return String(payload.sub);
+  return payload;
+}
+
+async function verifyTokenAndGetUserId(token, env) {
+  const payload = await decodeAndVerifyJwt(token, env, 'access');
+  return payload ? String(payload.sub) : null;
 }
 
 function toHex(bytes) {
@@ -693,24 +798,28 @@ function getClientIp(request) {
   return request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown';
 }
 
-// 条件原子扣减积分；失败时不会扣款
+// 条件原子扣减积分：UPDATE 与流水 INSERT 走 D1 batch，确保流水里的 balance 与扣款结果一致。
 async function deductPointsAtomic(env, userId, amount, description) {
   if (!isPositiveInteger(amount)) {
     return { ok: false, reason: 'invalid', message: '扣减金额无效' };
   }
   try {
-    const update = await env.DB.prepare(
-      'UPDATE users SET points = points - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND points >= ?'
-    ).bind(amount, userId, amount).run();
-    if (!update.meta.changes) {
+    const safeDesc = (typeof description === 'string' ? description : '消费').slice(0, 200);
+    const results = await env.DB.batch([
+      env.DB.prepare(
+        'UPDATE users SET points = points - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND points >= ?'
+      ).bind(amount, userId, amount),
+      env.DB.prepare(
+        `INSERT INTO transactions (user_id, amount, type, description, balance)
+         SELECT ?, ?, '消费', ?, points FROM users WHERE id = ?`
+      ).bind(userId, -amount, safeDesc, userId),
+    ]);
+    const updateMeta = results?.[0]?.meta;
+    if (!updateMeta?.changes) {
       return { ok: false, reason: 'insufficient', message: '积分不足' };
     }
     const user = await env.DB.prepare('SELECT points FROM users WHERE id = ?').bind(userId).first();
-    const balance = user?.points ?? 0;
-    await env.DB.prepare(
-      'INSERT INTO transactions (user_id, amount, type, description, balance) VALUES (?, ?, ?, ?, ?)'
-    ).bind(userId, -amount, '消费', description || '消费', balance).run();
-    return { ok: true, balance };
+    return { ok: true, balance: user?.points ?? 0 };
   } catch (error) {
     logError(env, 'deductPoints', error);
     return { ok: false, reason: 'error', message: '扣减失败' };
@@ -720,58 +829,48 @@ async function deductPointsAtomic(env, userId, amount, description) {
 async function refundPoints(env, userId, amount, description) {
   if (!isPositiveInteger(amount)) return { ok: false };
   try {
-    await env.DB.prepare(
-      'UPDATE users SET points = points + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).bind(amount, userId).run();
+    const safeDesc = (typeof description === 'string' ? description : '退款').slice(0, 200);
+    const results = await env.DB.batch([
+      env.DB.prepare(
+        'UPDATE users SET points = points + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+      ).bind(amount, userId),
+      env.DB.prepare(
+        `INSERT INTO transactions (user_id, amount, type, description, balance)
+         SELECT ?, ?, '退款', ?, points FROM users WHERE id = ?`
+      ).bind(userId, amount, safeDesc, userId),
+    ]);
+    if (!results?.[0]?.meta?.changes) return { ok: false };
     const user = await env.DB.prepare('SELECT points FROM users WHERE id = ?').bind(userId).first();
-    const balance = user?.points ?? 0;
-    await env.DB.prepare(
-      'INSERT INTO transactions (user_id, amount, type, description, balance) VALUES (?, ?, ?, ?, ?)'
-    ).bind(userId, amount, '退款', description || '退款', balance).run();
-    return { ok: true, balance };
+    return { ok: true, balance: user?.points ?? 0 };
   } catch (error) {
     logError(env, 'refundPoints', error);
     return { ok: false };
   }
 }
 
-async function ensureRateLimitTable(env) {
-  await env.DB.prepare(`
-    CREATE TABLE IF NOT EXISTS auth_rate_limits (
-      key TEXT PRIMARY KEY,
-      count INTEGER NOT NULL DEFAULT 0,
-      window_start INTEGER NOT NULL
-    )
-  `).run();
-  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON auth_rate_limits(window_start)').run();
-}
-
+// 单语句 UPSERT：window 过期则重置，否则 +1。比读后写降低并发覆盖风险。
 async function checkRateLimit(env, key, limit, windowSeconds) {
-  await ensureRateLimitTable(env);
   const now = Math.floor(Date.now() / 1000);
-  const row = await env.DB.prepare('SELECT count, window_start FROM auth_rate_limits WHERE key = ?').bind(key).first();
+  try {
+    const row = await env.DB.prepare(
+      `INSERT INTO auth_rate_limits (key, count, window_start)
+       VALUES (?, 1, ?)
+       ON CONFLICT(key) DO UPDATE SET
+         count = CASE WHEN ? - auth_rate_limits.window_start >= ? THEN 1 ELSE auth_rate_limits.count + 1 END,
+         window_start = CASE WHEN ? - auth_rate_limits.window_start >= ? THEN ? ELSE auth_rate_limits.window_start END
+       RETURNING count`
+    ).bind(key, now, now, windowSeconds, now, windowSeconds, now).first();
 
-  // 1% 概率顺便清理一天前的记录，避免表无限增长
-  if (Math.random() < 0.01) {
-    try {
-      await env.DB.prepare('DELETE FROM auth_rate_limits WHERE window_start < ?').bind(now - 86400).run();
-    } catch (error) {
-      logError(env, 'rate-limit-gc', error);
+    const count = Number(row?.count || 0);
+    if (count > limit) {
+      return { allowed: false, remaining: 0 };
     }
+    return { allowed: true, remaining: Math.max(0, limit - count) };
+  } catch (error) {
+    logError(env, 'rate-limit', error);
+    // 出错时放行，避免限流挂掉影响业务
+    return { allowed: true, remaining: limit };
   }
-
-  if (!row || now - row.window_start >= windowSeconds) {
-    await env.DB.prepare('INSERT OR REPLACE INTO auth_rate_limits (key, count, window_start) VALUES (?, 1, ?)').bind(key, now).run();
-    return { allowed: true, remaining: limit - 1 };
-  }
-
-  if (row.count >= limit) {
-    return { allowed: false, remaining: 0 };
-  }
-
-  const newCount = row.count + 1;
-  await env.DB.prepare('UPDATE auth_rate_limits SET count = ? WHERE key = ?').bind(newCount, key).run();
-  return { allowed: true, remaining: limit - newCount };
 }
 
 async function handleLogin(request, env) {
@@ -785,24 +884,42 @@ async function handleLogin(request, env) {
     return { data: { error: '请输入正确的手机号' }, status: 400 };
   }
 
-  // 注意：验证码校验尚未接入真实短信服务（暂留），code 字段当前不做校验
+  const ip = getClientIp(request);
+  // 单 IP 1 分钟最多发起 10 次登录/注册尝试
+  const ipRate = await checkRateLimit(env, `login-ip:${ip}`, 10, 60);
+  if (!ipRate.allowed) {
+    return { data: { error: '尝试次数过多，请稍后再试' }, status: 429 };
+  }
+  // 同手机号 10 分钟最多 8 次（防撞库）
+  const phoneRate = await checkRateLimit(env, `login-phone:${phone}`, 8, 600);
+  if (!phoneRate.allowed) {
+    return { data: { error: '该手机号尝试过于频繁，请稍后再试' }, status: 429 };
+  }
+  // 同 IP 24h 最多注册 5 个新账号
+  const regRate = await checkRateLimit(env, `register-ip:${ip}`, 5, 86400);
+
+  // 注意：验证码校验尚未接入真实短信服务，待接入后这里需要校验 body.code
   let user = await env.DB.prepare(
     'SELECT * FROM users WHERE phone = ?'
   ).bind(phone).first();
 
   let isNewUser = false;
   if (!user) {
+    if (!regRate.allowed) {
+      return { data: { error: '当前网络环境注册次数过多，请稍后再试' }, status: 429 };
+    }
     isNewUser = true;
     const result = await env.DB.prepare(
       'INSERT INTO users (phone, points) VALUES (?, 100)'
     ).bind(phone).run();
-    
+
     user = await env.DB.prepare(
       'SELECT * FROM users WHERE id = ?'
     ).bind(result.meta.last_row_id).first();
   }
 
-  const token = await generateToken(user.id, env, user.token_version);
+  const { token, refreshToken } = await issueTokenPair(user.id, env, user.token_version);
+  const hasPassword = !!user.password && user.password !== PASSWORD_DISABLED_MARKER && user.password.startsWith('pbkdf2$');
 
   return {
     data: {
@@ -813,8 +930,9 @@ async function handleLogin(request, env) {
         createdAt: user.created_at
       },
       token,
+      refreshToken,
       isNewUser,
-      hasPassword: !!user.password
+      hasPassword,
     }
   };
 }
@@ -834,10 +952,13 @@ async function handleLoginWithPassword(request, env) {
   }
 
   const ip = getClientIp(request);
-  const rateKey = `pwd:${ip}:${phone}`;
-  const rate = await checkRateLimit(env, rateKey, 8, 600);
+  const rate = await checkRateLimit(env, `pwd:${ip}:${phone}`, 8, 600);
   if (!rate.allowed) {
     return { data: { error: '尝试次数过多，请10分钟后再试' }, status: 429 };
+  }
+  const ipRate = await checkRateLimit(env, `login-ip:${ip}`, 30, 60);
+  if (!ipRate.allowed) {
+    return { data: { error: '尝试次数过多，请稍后再试' }, status: 429 };
   }
 
   const user = await env.DB.prepare(
@@ -848,16 +969,16 @@ async function handleLoginWithPassword(request, env) {
     return { data: { error: '手机号或密码错误' }, status: 400 };
   }
 
-  if (!user.password) {
+  if (!user.password || user.password === PASSWORD_DISABLED_MARKER) {
     return { data: { error: '该用户未设置密码，请使用验证码登录' }, status: 400 };
   }
 
-  const isHashedPassword = user.password && user.password.startsWith('pbkdf2$');
+  const isHashedPassword = user.password.startsWith('pbkdf2$');
   let passwordValid = false;
   if (isHashedPassword) {
     passwordValid = await verifyPassword(password, user.password);
   } else {
-    // 兼容旧数据：首次正确登录后升级为哈希密码
+    // 兼容旧明文密码：登录成功后升级为哈希
     passwordValid = user.password === password;
     if (passwordValid) {
       const hashedPassword = await hashPassword(password);
@@ -871,7 +992,7 @@ async function handleLoginWithPassword(request, env) {
     return { data: { error: '手机号或密码错误' }, status: 400 };
   }
 
-  const token = await generateToken(user.id, env, user.token_version);
+  const { token, refreshToken } = await issueTokenPair(user.id, env, user.token_version);
 
   return {
     data: {
@@ -882,7 +1003,8 @@ async function handleLoginWithPassword(request, env) {
         points: user.points,
         createdAt: user.created_at
       },
-      token
+      token,
+      refreshToken,
     }
   };
 }
@@ -931,8 +1053,8 @@ async function handleUpdatePassword(request, env) {
   }
   const { oldPassword, newPassword } = body;
 
-  if (!isNonEmptyString(newPassword, 128) || newPassword.length < 6) {
-    return { data: { error: '新密码长度需为 6~128 位' }, status: 400 };
+  if (!isStrongPassword(newPassword)) {
+    return { data: { error: '新密码需 6~128 位且同时包含字母和数字' }, status: 400 };
   }
 
   const user = await env.DB.prepare(
@@ -942,7 +1064,8 @@ async function handleUpdatePassword(request, env) {
     return { data: { error: '用户不存在' }, status: 404 };
   }
 
-  if (user.password) {
+  // 已设置密码则必须校验原密码（占位密码视为未设置）
+  if (user.password && user.password !== PASSWORD_DISABLED_MARKER) {
     if (!isNonEmptyString(oldPassword, 128)) {
       return { data: { error: '原密码错误' }, status: 400 };
     }
@@ -955,16 +1078,78 @@ async function handleUpdatePassword(request, env) {
   }
 
   const hashedPassword = await hashPassword(newPassword);
-  // 递增 token_version，使旧 token 立即失效
   await env.DB.prepare(
     'UPDATE users SET password = ?, token_version = COALESCE(token_version, 0) + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
   ).bind(hashedPassword, userId).run();
 
-  // 生成新 token 供前端替换
   const updated = await env.DB.prepare('SELECT token_version FROM users WHERE id = ?').bind(userId).first();
-  const newToken = await generateToken(userId, env, updated?.token_version);
+  const { token: newToken, refreshToken } = await issueTokenPair(userId, env, updated?.token_version);
 
-  return { data: { success: true, message: '密码修改成功', token: newToken } };
+  return { data: { success: true, message: '密码修改成功', token: newToken, refreshToken } };
+}
+
+async function handleRefreshToken(request, env) {
+  const body = await readJsonBody(request);
+  const refreshToken = typeof body?.refreshToken === 'string' ? body.refreshToken : '';
+  if (!refreshToken) {
+    return { data: { error: 'refreshToken 必填' }, status: 400 };
+  }
+  const ip = getClientIp(request);
+  const rate = await checkRateLimit(env, `refresh-ip:${ip}`, 60, 60);
+  if (!rate.allowed) {
+    return { data: { error: '请求过于频繁' }, status: 429 };
+  }
+  const payload = await decodeAndVerifyJwt(refreshToken, env, 'refresh');
+  if (!payload) {
+    return { data: { error: 'refreshToken 无效或已过期' }, status: 401 };
+  }
+  const user = await env.DB.prepare('SELECT id, token_version FROM users WHERE id = ?').bind(payload.sub).first();
+  if (!user) {
+    return { data: { error: '用户不存在' }, status: 401 };
+  }
+  const { token, refreshToken: newRefresh } = await issueTokenPair(user.id, env, user.token_version);
+  return { data: { success: true, token, refreshToken: newRefresh } };
+}
+
+async function handleDeleteAccount(request, env) {
+  const token = getUserId(request);
+  const userId = token ? await verifyTokenAndGetUserId(token, env) : null;
+  if (!userId) {
+    return { data: { error: '未登录' }, status: 401 };
+  }
+  const body = await readJsonBody(request);
+  const confirm = body?.confirm;
+  if (confirm !== 'DELETE') {
+    return { data: { error: '请在 confirm 字段输入 DELETE 以确认' }, status: 400 };
+  }
+
+  const user = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first();
+  if (!user) {
+    return { data: { error: '用户不存在' }, status: 404 };
+  }
+
+  // 若已设置密码，二次校验密码
+  if (user.password && user.password !== PASSWORD_DISABLED_MARKER && user.password.startsWith('pbkdf2$')) {
+    const password = body?.password;
+    if (!isNonEmptyString(password, 128) || !await verifyPassword(password, user.password)) {
+      return { data: { error: '密码校验失败' }, status: 400 };
+    }
+  }
+
+  try {
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM transactions WHERE user_id = ?').bind(userId),
+      env.DB.prepare('DELETE FROM generations WHERE user_id = ?').bind(userId),
+      env.DB.prepare('DELETE FROM used_prompts WHERE user_id = ?').bind(userId),
+      env.DB.prepare('DELETE FROM api_usage_logs WHERE user_id = ?').bind(userId),
+      env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId),
+    ]);
+  } catch (error) {
+    logError(env, 'delete-account', error);
+    return { data: { error: '注销失败，请稍后再试' }, status: 500 };
+  }
+
+  return { data: { success: true } };
 }
 
 async function handleGetBalance(request, env) {
@@ -1005,20 +1190,30 @@ async function handleAddPoints(request, env) {
 
   // 安全：仅管理员（ADMIN_PHONES 白名单）可通过此接口给自己加积分
   // 未来接入真实支付时，此接口应改为支付回调专用或完全下线
-  if (!isAdminPhone(user.phone, env) && !checkAdminSecret(request, env)) {
+  const isAdmin = isAdminPhone(user.phone, env) || checkAdminSecret(request, env);
+  if (!isAdmin) {
     return { data: { error: '充值功能暂未开放' }, status: 403 };
   }
 
-  await env.DB.prepare(
-    'UPDATE users SET points = points + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-  ).bind(amount, userId).run();
+  const safeDesc = description.slice(0, 200);
+  await env.DB.batch([
+    env.DB.prepare(
+      'UPDATE users SET points = points + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).bind(amount, userId),
+    env.DB.prepare(
+      `INSERT INTO transactions (user_id, amount, type, description, balance)
+       SELECT ?, ?, '充值', ?, points FROM users WHERE id = ?`
+    ).bind(userId, amount, safeDesc, userId),
+  ]);
 
   const after = await env.DB.prepare('SELECT points FROM users WHERE id = ?').bind(userId).first();
   const newPoints = after?.points ?? user.points + amount;
 
-  await env.DB.prepare(
-    'INSERT INTO transactions (user_id, amount, type, description, balance) VALUES (?, ?, ?, ?, ?)'
-  ).bind(userId, amount, '充值', description, newPoints).run();
+  await logAdminAudit(env, {
+    adminUserId: userId, adminPhone: user.phone,
+    action: 'points.add', target: `user:${userId}`,
+    payload: { amount, description: safeDesc },
+  });
 
   return { data: { success: true, points: newPoints, message: '充值成功' } };
 }
@@ -1231,6 +1426,27 @@ async function handleMarkPromptUsed(request, env) {
 
 // =============== 管理后台接口 ===============
 
+async function logAdminAudit(env, { adminUserId, adminPhone, action, target, payload }) {
+  try {
+    let payloadStr = '';
+    if (payload != null) {
+      try { payloadStr = JSON.stringify(payload).slice(0, 2000); } catch { payloadStr = ''; }
+    }
+    await env.DB.prepare(
+      `INSERT INTO admin_audit_logs (admin_user_id, admin_phone, action, target, payload)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(
+      adminUserId || null,
+      (adminPhone || '').slice(0, 20),
+      String(action || '').slice(0, 100),
+      String(target || '').slice(0, 200),
+      payloadStr,
+    ).run();
+  } catch (error) {
+    logError(env, 'logAdminAudit', error);
+  }
+}
+
 async function handleAdminMe(request, env) {
   const guard = await requireAdmin(request, env);
   if (!guard.ok) {
@@ -1298,6 +1514,12 @@ async function handleAdminCreateModel(request, env) {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(m.provider, m.modelType, m.modelId, m.displayName, m.apiUrl, m.enabled, m.isDefault, m.price, m.unit, m.quota, m.info).run();
 
+  await logAdminAudit(env, {
+    adminUserId: guard.userId, adminPhone: guard.phone,
+    action: 'model.create', target: `model:${result.meta.last_row_id}`,
+    payload: m,
+  });
+
   return { data: { success: true, id: result.meta.last_row_id } };
 }
 
@@ -1327,6 +1549,12 @@ async function handleAdminUpdateModel(request, env, path) {
      WHERE id = ?`
   ).bind(m.provider, m.modelType, m.modelId, m.displayName, m.apiUrl, m.enabled, m.isDefault, m.price, m.unit, m.quota, m.info, id).run();
 
+  await logAdminAudit(env, {
+    adminUserId: guard.userId, adminPhone: guard.phone,
+    action: 'model.update', target: `model:${id}`,
+    payload: m,
+  });
+
   return { data: { success: true } };
 }
 
@@ -1338,6 +1566,12 @@ async function handleAdminDeleteModel(request, env, path) {
   if (!id) return { data: { error: 'id 无效' }, status: 400 };
 
   await env.DB.prepare('DELETE FROM ai_models WHERE id = ?').bind(id).run();
+
+  await logAdminAudit(env, {
+    adminUserId: guard.userId, adminPhone: guard.phone,
+    action: 'model.delete', target: `model:${id}`,
+  });
+
   return { data: { success: true } };
 }
 
@@ -1351,8 +1585,16 @@ async function handleAdminSetDefaultModel(request, env, path) {
   const model = await env.DB.prepare('SELECT model_type FROM ai_models WHERE id = ?').bind(id).first();
   if (!model) return { data: { error: '模型不存在' }, status: 404 };
 
-  await env.DB.prepare('UPDATE ai_models SET is_default = 0 WHERE model_type = ?').bind(model.model_type).run();
-  await env.DB.prepare('UPDATE ai_models SET is_default = 1, enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(id).run();
+  await env.DB.batch([
+    env.DB.prepare('UPDATE ai_models SET is_default = 0 WHERE model_type = ?').bind(model.model_type),
+    env.DB.prepare('UPDATE ai_models SET is_default = 1, enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(id),
+  ]);
+
+  await logAdminAudit(env, {
+    adminUserId: guard.userId, adminPhone: guard.phone,
+    action: 'model.set_default', target: `model:${id}`,
+    payload: { model_type: model.model_type },
+  });
 
   return { data: { success: true } };
 }

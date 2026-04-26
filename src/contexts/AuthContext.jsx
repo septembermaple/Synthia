@@ -41,13 +41,19 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const sendVerificationCode = async (phone) => {
-    return { success: true, message: '验证码已发送' };
+  const sendVerificationCode = async () => {
+    return { success: true, message: '验证码已发送（占位，未接短信服务）' };
+  };
+
+  const persistTokens = (data) => {
+    if (data?.token) api.setToken(data.token);
+    if (data?.refreshToken) api.setRefreshToken(data.refreshToken);
   };
 
   const login = async (phone, code) => {
     const data = await api.login(phone, code);
-    if (data.user) {
+    persistTokens(data);
+    if (data?.user) {
       setUser(data.user);
       checkAdmin();
     }
@@ -56,14 +62,15 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithPassword = async (phone, password) => {
     const data = await api.loginWithPassword(phone, password);
-    if (data.success && data.user) {
+    persistTokens(data);
+    if (data?.success && data.user) {
       setUser(data.user);
       checkAdmin();
     }
     return data;
   };
 
-  const checkUserExists = (phone) => {
+  const checkUserExists = () => {
     return { exists: false, hasPassword: false };
   };
 
@@ -72,20 +79,19 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
-    await api.logout();
+    try {
+      await api.logout();
+    } catch {}
     setUser(null);
     setIsAdmin(false);
   };
 
   const updatePassword = async (oldPassword, newPassword) => {
     if (!user) return { success: false, message: '未登录' };
-    
     try {
       const result = await api.updatePassword(oldPassword, newPassword);
-      // 后端会返回新 token（旧 token 已失效），替换本地存储
-      if (result?.token) {
-        api.setToken(result.token);
-      }
+      if (result?.token) api.setToken(result.token);
+      if (result?.refreshToken) api.setRefreshToken(result.refreshToken);
       return result;
     } catch (error) {
       return { success: false, message: error.message || '密码修改失败' };
@@ -94,10 +100,9 @@ export const AuthProvider = ({ children }) => {
 
   const addPoints = async (amount, description) => {
     if (!user) return { success: false, message: '未登录' };
-    
     try {
       const result = await api.addPoints(amount, description);
-      if (result.success) {
+      if (result?.success) {
         setUser({ ...user, points: result.points });
       }
       return result;
@@ -108,14 +113,12 @@ export const AuthProvider = ({ children }) => {
 
   const consumePoints = async (amount, description) => {
     if (!user) return { success: false, message: '未登录' };
-    
     if (user.points < amount) {
       return { success: false, message: '积分不足' };
     }
-    
     try {
       const result = await api.consumePoints(amount, description);
-      if (result.success) {
+      if (result?.success) {
         setUser({ ...user, points: result.points });
       }
       return result;
@@ -144,6 +147,22 @@ export const AuthProvider = ({ children }) => {
     return await api.deleteGeneration(recordId);
   };
 
+  const deleteAccount = async (password, confirm) => {
+    if (!user) return { success: false, message: '未登录' };
+    try {
+      const result = await api.deleteAccount(password, confirm);
+      if (result?.success) {
+        api.setToken(null);
+        api.setRefreshToken(null);
+        setUser(null);
+        setIsAdmin(false);
+      }
+      return result;
+    } catch (error) {
+      return { success: false, message: error.message || '注销失败' };
+    }
+  };
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -162,6 +181,7 @@ export const AuthProvider = ({ children }) => {
       saveGenerationRecord,
       getGenerationRecords,
       deleteGenerationRecord,
+      deleteAccount,
       refreshUser
     }}>
       {children}

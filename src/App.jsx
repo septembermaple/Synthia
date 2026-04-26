@@ -95,11 +95,14 @@ function App({ requireAuth }) {
   const { user, isAdmin, logout, saveGenerationRecord, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [images, setImages] = useState([]);
+  const [primaryImageId, setPrimaryImageId] = useState(null);
   const [results, setResults] = useState([]);
+  const [progress, setProgress] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [imageCount, setImageCount] = useState(1);
   const [keepFace, setKeepFace] = useState(true);
+  const abortControllerRef = useRef(null);
   const [activeTab, setActiveTab] = useState('全部');
   const [heroStyleIndex, setHeroStyleIndex] = useState(0);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -117,6 +120,9 @@ function App({ requireAuth }) {
     lighting: '',
     mood: ''
   });
+
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [useCustomPrompt, setUseCustomPrompt] = useState(false);
 
   const prompts = [
     { name: '专业写真', description: '光线柔和，色彩丰富', category: '复古', image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&h=800&fit=crop' },
@@ -145,24 +151,78 @@ function App({ requireAuth }) {
     return () => clearInterval(interval);
   }, []);
 
-  const handleImageUpload = (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
+  const MAX_UPLOAD_FILES = 5;
+  const MAX_FILE_SIZE = 12 * 1024 * 1024;
+  const MAX_LONG_EDGE = 1280;
+  const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
-    const imagePreviews = files.map(file => ({
-      id: Date.now() + Math.random(),
-      url: URL.createObjectURL(file),
-      file
-    }));
+  const acceptFiles = (files) => {
+    setError('');
+    const valid = [];
+    for (const file of files) {
+      if (!ACCEPTED_TYPES.includes(file.type)) {
+        setError(`不支持的图片格式：${file.name}（仅支持 JPG/PNG/WEBP）`);
+        continue;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        setError(`图片过大：${file.name}（最大 ${MAX_FILE_SIZE / (1024 * 1024)}MB）`);
+        continue;
+      }
+      valid.push(file);
+    }
+    if (valid.length === 0) return;
 
-    setImages(prevImages => [...prevImages, ...imagePreviews]);
+    setImages(prev => {
+      const remain = MAX_UPLOAD_FILES - prev.length;
+      if (remain <= 0) {
+        setError(`最多只能上传 ${MAX_UPLOAD_FILES} 张图片`);
+        return prev;
+      }
+      const next = valid.slice(0, remain).map(file => ({
+        id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        url: URL.createObjectURL(file),
+        file,
+      }));
+      const merged = [...prev, ...next];
+      if (!primaryImageId && merged.length > 0) {
+        setPrimaryImageId(merged[0].id);
+      }
+      return merged;
+    });
   };
 
-  const imageToBase64 = (file) => {
+  const handleImageUpload = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    acceptFiles(files);
+    e.target.value = '';
+  };
+
+  const compressImageToDataUrl = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = reject;
+      reader.onerror = () => reject(new Error('读取图片失败'));
+      reader.onloadend = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('图片解析失败'));
+        img.onload = () => {
+          let { width, height } = img;
+          const longEdge = Math.max(width, height);
+          if (longEdge > MAX_LONG_EDGE) {
+            const ratio = MAX_LONG_EDGE / longEdge;
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+          resolve(canvas.toDataURL(mime, 0.9));
+        };
+        img.src = reader.result;
+      };
       reader.readAsDataURL(file);
     });
   };
@@ -180,17 +240,9 @@ function App({ requireAuth }) {
   const handleDrop = (e) => {
     e.preventDefault();
     e.currentTarget.classList.remove('dragover');
-
-    const files = Array.from(e.dataTransfer.files);
+    const files = Array.from(e.dataTransfer.files || []);
     if (files.length === 0) return;
-
-    const imagePreviews = files.map(file => ({
-      id: Date.now() + Math.random(),
-      url: URL.createObjectURL(file),
-      file
-    }));
-
-    setImages(prevImages => [...prevImages, ...imagePreviews]);
+    acceptFiles(files);
   };
 
   const generatePromptWithLLM = async (scene, style) => {
@@ -214,19 +266,32 @@ function App({ requireAuth }) {
   };
 
   const generateImages = async () => {
+    if (loading) return;
+
     if (!user) {
       setShowAuthModal(true);
       return;
     }
-    
+
     if (images.length === 0) {
       setError('请先上传至少一张图片');
       return;
     }
 
-    if (!basicParams.scene) {
-      setError('请选择场景');
+    if (!useCustomPrompt && !basicParams.scene) {
+      setError('请选择场景或填写自定义提示词');
       return;
+    }
+    if (useCustomPrompt) {
+      const trimmed = customPrompt.trim();
+      if (trimmed.length < 4) {
+        setError('自定义提示词太短，请至少输入 4 个字符');
+        return;
+      }
+      if (trimmed.length > 2000) {
+        setError('自定义提示词过长，请控制在 2000 字以内');
+        return;
+      }
     }
 
     const pointsRequired = imageCount * 10;
@@ -235,19 +300,29 @@ function App({ requireAuth }) {
       return;
     }
 
+    const primary = images.find(i => i.id === primaryImageId) || images[0];
+
     setLoading(true);
     setError('');
     setResults([]);
+    setProgress({ current: 0, total: imageCount });
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
-      const imageBase64 = await imageToBase64(images[0].file);
-      
-      const categoryScenes = basicParams.sceneCategory ? sceneCategories[basicParams.sceneCategory] : [];
-      const sceneData = categoryScenes.find(s => s.name === basicParams.scene);
-      const style = basicParams.visualStyle || (sceneData ? sceneData.style : '');
-      
-      let finalPrompt = await generatePromptWithLLM(basicParams.scene, style);
-      
+      const imageBase64 = await compressImageToDataUrl(primary.file);
+
+      let finalPrompt;
+      if (useCustomPrompt) {
+        finalPrompt = customPrompt.trim();
+      } else {
+        const categoryScenes = basicParams.sceneCategory ? sceneCategories[basicParams.sceneCategory] : [];
+        const sceneData = categoryScenes.find(s => s.name === basicParams.scene);
+        const style = basicParams.visualStyle || (sceneData ? sceneData.style : '');
+        finalPrompt = await generatePromptWithLLM(basicParams.scene, style);
+      }
+
       if (keepFace) {
         finalPrompt = '（保持图一人物的五官不变）' + finalPrompt;
       }
@@ -257,28 +332,59 @@ function App({ requireAuth }) {
         imageBase64,
         imageCount,
         (url) => {
-          setResults(prev => [...prev, url]);
-        }
+          setResults(prev => {
+            const next = [...prev, url];
+            setProgress({ current: next.length, total: imageCount });
+            return next;
+          });
+        },
+        controller.signal,
       );
 
       if (generatedImages.length > 0) {
-        // 积分已由服务端在生成时原子扣减，此处刷新用户积分余额
         await refreshUser();
         await saveGenerationRecord(generatedImages, finalPrompt.substring(0, 100), basicParams.scene, imageCount);
       } else {
         throw new Error('未获取到生成的图片');
       }
     } catch (err) {
-      setError(`生成图片失败: ${err.message}`);
-      console.error('Error generating images:', err);
+      if (err?.name === 'AbortError') {
+        setError('已取消生成');
+      } else {
+        setError(`生成图片失败: ${err.message}`);
+      }
     } finally {
+      abortControllerRef.current = null;
       setLoading(false);
+      setProgress(null);
     }
   };
 
-  const removeImage = (id) => {
-    setImages(prevImages => prevImages.filter(img => img.id !== id));
+  const cancelGeneration = () => {
+    abortControllerRef.current?.abort();
   };
+
+  const removeImage = (id) => {
+    setImages(prevImages => {
+      const target = prevImages.find(img => img.id === id);
+      if (target?.url) {
+        URL.revokeObjectURL(target.url);
+      }
+      const next = prevImages.filter(img => img.id !== id);
+      if (primaryImageId === id) {
+        setPrimaryImageId(next[0]?.id || null);
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    return () => {
+      images.forEach(img => {
+        if (img.url) URL.revokeObjectURL(img.url);
+      });
+    };
+  }, []);
 
   const filteredPrompts = activeTab === '全部' 
     ? prompts 
@@ -414,41 +520,79 @@ function App({ requireAuth }) {
                     <line x1="12" y1="3" x2="12" y2="15"/>
                   </svg>
                   <p className="upload-text">拖拽或点击上传照片</p>
-                  <p className="upload-hint">支持 JPG、PNG 格式</p>
+                  <p className="upload-hint">支持 JPG、PNG、WEBP，最多 {MAX_UPLOAD_FILES} 张，单张 ≤ {MAX_FILE_SIZE / (1024 * 1024)}MB</p>
                 </>
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
-                  {images.map(img => (
-                    <div key={img.id} style={{ position: 'relative' }}>
-                      <img 
-                        src={img.url} 
-                        alt="预览" 
-                        style={{ width: '150px', height: '150px', objectFit: 'cover', borderRadius: '12px' }}
-                      />
-                      <button 
+                  {images.map(img => {
+                    const isPrimary = img.id === primaryImageId;
+                    return (
+                      <div
+                        key={img.id}
+                        style={{ position: 'relative', cursor: 'pointer' }}
                         onClick={(e) => {
                           e.stopPropagation();
-                          removeImage(img.id);
-                        }}
-                        style={{
-                          position: 'absolute',
-                          top: '-8px',
-                          right: '-8px',
-                          background: '#ff6b6b',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '50%',
-                          width: '24px',
-                          height: '24px',
-                          cursor: 'pointer',
-                          fontSize: '14px'
+                          setPrimaryImageId(img.id);
                         }}
                       >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                        <img
+                          src={img.url}
+                          alt="预览"
+                          style={{
+                            width: '150px',
+                            height: '150px',
+                            objectFit: 'cover',
+                            borderRadius: '12px',
+                            outline: isPrimary ? '3px solid #6c5ce7' : 'none',
+                            boxShadow: isPrimary ? '0 0 0 2px rgba(108,92,231,0.3)' : 'none',
+                          }}
+                        />
+                        {isPrimary && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              bottom: '6px',
+                              left: '6px',
+                              background: 'rgba(108,92,231,0.95)',
+                              color: 'white',
+                              fontSize: '11px',
+                              padding: '2px 8px',
+                              borderRadius: '999px',
+                            }}
+                          >
+                            主图
+                          </div>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeImage(img.id);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: '-8px',
+                            right: '-8px',
+                            background: '#ff6b6b',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '24px',
+                            height: '24px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
+              )}
+              {images.length > 1 && (
+                <p className="upload-hint" style={{ marginTop: '0.75rem', fontSize: '12px', opacity: 0.7 }}>
+                  点击任意图片可设为主图（仅主图会被用于生成）
+                </p>
               )}
             </div>
           </div>
@@ -520,7 +664,7 @@ function App({ requireAuth }) {
                       value={imageCount}
                       onChange={(e) => setImageCount(Number(e.target.value))}
                     >
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(count => (
+                      {[1, 2, 3, 4].map(count => (
                         <option key={count} value={count}>{count} 张</option>
                       ))}
                     </select>
@@ -536,6 +680,37 @@ function App({ requireAuth }) {
                       />
                       <span>保持原有人物五官特征</span>
                     </label>
+                  </div>
+
+                  <div className="setting-item">
+                    <label className="setting-label">自定义提示词</label>
+                    <label className="checkbox-option">
+                      <input
+                        type="checkbox"
+                        checked={useCustomPrompt}
+                        onChange={(e) => setUseCustomPrompt(e.target.checked)}
+                      />
+                      <span>使用自己写的 prompt（跳过场景模板与 LLM）</span>
+                    </label>
+                    {useCustomPrompt && (
+                      <textarea
+                        value={customPrompt}
+                        onChange={(e) => setCustomPrompt(e.target.value)}
+                        placeholder="例如：黄昏海边，少女披肩长发，逆光剪影，电影感色调，胶片颗粒"
+                        rows={4}
+                        maxLength={2000}
+                        style={{
+                          width: '100%',
+                          marginTop: '0.5rem',
+                          padding: '0.6rem 0.8rem',
+                          background: 'rgba(255,255,255,0.06)',
+                          border: '1px solid rgba(255,255,255,0.15)',
+                          borderRadius: 8,
+                          color: 'inherit',
+                          resize: 'vertical',
+                        }}
+                      />
+                    )}
                   </div>
                 </div>
               )}
@@ -601,14 +776,34 @@ function App({ requireAuth }) {
                 </div>
               )}
 
-              <button 
+              <button
                 className="generate-button"
                 onClick={generateImages}
                 disabled={loading}
               >
-                {loading ? '生成中...' : '开始生成'}
+                {loading
+                  ? (progress ? `生成中 ${progress.current}/${progress.total}...` : '生成中...')
+                  : '开始生成'}
               </button>
-              
+              {loading && (
+                <button
+                  className="cancel-generate-btn"
+                  type="button"
+                  onClick={cancelGeneration}
+                  style={{
+                    marginTop: '0.5rem',
+                    padding: '0.5rem 1rem',
+                    background: 'transparent',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    color: 'inherit',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  取消生成
+                </button>
+              )}
+
               <div className="expiry-notice">
                 ⏰ 生成结果保存24小时，请及时下载
               </div>

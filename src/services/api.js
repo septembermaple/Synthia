@@ -1,10 +1,12 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 
 const TOKEN_KEY = 'synthia_token';
+const REFRESH_TOKEN_KEY = 'synthia_refresh_token';
 
 class ApiService {
   constructor() {
     this.baseURL = API_BASE_URL;
+    this._refreshPromise = null;
   }
 
   getToken() {
@@ -19,10 +21,53 @@ class ApiService {
     }
   }
 
-  async request(endpoint, options = {}) {
+  getRefreshToken() {
+    return localStorage.getItem(REFRESH_TOKEN_KEY);
+  }
+
+  setRefreshToken(token) {
+    if (token) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
+    }
+  }
+
+  async _refreshAccessToken() {
+    if (!this._refreshPromise) {
+      const refreshToken = this.getRefreshToken();
+      if (!refreshToken) return null;
+      this._refreshPromise = (async () => {
+        try {
+          const url = `${this.baseURL}/api/auth/refresh`;
+          const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken }),
+          });
+          if (!resp.ok) {
+            this.setToken(null);
+            this.setRefreshToken(null);
+            return null;
+          }
+          const data = await resp.json();
+          if (data?.token) this.setToken(data.token);
+          if (data?.refreshToken) this.setRefreshToken(data.refreshToken);
+          return data?.token || null;
+        } catch {
+          return null;
+        } finally {
+          this._refreshPromise = null;
+        }
+      })();
+    }
+    return this._refreshPromise;
+  }
+
+  async request(endpoint, options = {}, _retry = false) {
     const url = `${this.baseURL}${endpoint}`;
     const token = this.getToken();
-    
+
     const config = {
       ...options,
       headers: {
@@ -35,18 +80,22 @@ class ApiService {
       config.headers['Authorization'] = `Bearer ${token}`;
     }
 
-    try {
-      const response = await fetch(url, config);
-      const data = await response.json();
+    const response = await fetch(url, config);
 
-      if (!response.ok) {
-        throw new Error(data.error || '请求失败');
+    if (response.status === 401 && !_retry && this.getRefreshToken()) {
+      const newToken = await this._refreshAccessToken();
+      if (newToken) {
+        return await this.request(endpoint, options, true);
       }
-
-      return data;
-    } catch (error) {
-      throw error;
     }
+
+    let data = {};
+    try { data = await response.json(); } catch {}
+
+    if (!response.ok) {
+      throw new Error(data.error || '请求失败');
+    }
+    return data;
   }
 
   async login(phone, code) {
@@ -73,8 +122,20 @@ class ApiService {
 
   async logout() {
     this.setToken(null);
-    return await this.request('/api/auth/logout', {
+    this.setRefreshToken(null);
+    try {
+      return await this.request('/api/auth/logout', {
+        method: 'POST',
+      });
+    } catch {
+      return { success: true };
+    }
+  }
+
+  async deleteAccount(password, confirm) {
+    return await this.request('/api/auth/delete-account', {
       method: 'POST',
+      body: JSON.stringify({ password, confirm }),
     });
   }
 
@@ -184,7 +245,7 @@ class ApiService {
     return await this.request('/api/admin/stats/models');
   }
 
-  async generateImages(prompt, imageBase64, imageCount, onImageGenerated) {
+  async generateImages(prompt, imageBase64, imageCount, onImageGenerated, signal) {
     const url = `${this.baseURL}/api/images/generate`;
     const token = this.getToken();
 
@@ -194,56 +255,47 @@ class ApiService {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ prompt, imageBase64, imageCount })
+      body: JSON.stringify({ prompt, imageBase64, imageCount }),
+      signal,
     });
 
     if (!response.ok) {
-      const error = await response.json();
+      const error = await response.json().catch(() => ({}));
       throw new Error(error.error || '生成失败');
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    let generatedImages = [];
-    let currentEvent = '';
+    const generatedImages = [];
     let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      
-      for (const line of lines) {
-        const trimmedLine = line.trim();
-        
-        if (trimmedLine.startsWith('event:')) {
-          currentEvent = trimmedLine.substring(6).trim();
-        }
-        
-        if (trimmedLine.startsWith('data:')) {
-          const dataStr = trimmedLine.substring(5).trim();
-          
-          if (dataStr === '[DONE]') {
-            continue;
-          }
-          
-          if (dataStr) {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine.startsWith('data:')) {
+            const dataStr = trimmedLine.substring(5).trim();
+            if (dataStr === '[DONE]' || !dataStr) continue;
             try {
               const data = JSON.parse(dataStr);
               if (data && data.url) {
                 generatedImages.push(data.url);
-                if (onImageGenerated) {
-                  onImageGenerated(data.url);
-                }
+                if (onImageGenerated) onImageGenerated(data.url);
               }
-            } catch (e) {
-            }
+            } catch {}
           }
         }
       }
+    } catch (err) {
+      try { reader.cancel(); } catch {}
+      throw err;
     }
 
     return generatedImages;
