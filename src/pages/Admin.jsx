@@ -329,6 +329,8 @@ function Reports() {
   const [usage, setUsage] = useState([]);
   const [topUsers, setTopUsers] = useState([]);
   const [modelStats, setModelStats] = useState([]);
+  const [redeemStats, setRedeemStats] = useState(null);
+  const [redeemError, setRedeemError] = useState('');
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -336,6 +338,7 @@ function Reports() {
   const load = async () => {
     setLoading(true);
     setError('');
+    setRedeemError('');
     try {
       const [o, u, t, m] = await Promise.all([
         api.adminStatsOverview(),
@@ -347,6 +350,13 @@ function Reports() {
       setUsage(u || []);
       setTopUsers(t || []);
       setModelStats(m || []);
+      try {
+        const r = await api.adminStatsRedeem(days);
+        setRedeemStats(r || null);
+      } catch (e) {
+        setRedeemStats(null);
+        setRedeemError(e?.message || '兑换码统计加载失败');
+      }
     } catch (e) {
       setError('加载失败：' + e.message);
     } finally {
@@ -372,6 +382,14 @@ function Reports() {
   }, {});
   const days30 = Object.values(byDay).sort((a, b) => a.day < b.day ? -1 : 1);
 
+  const rs = redeemStats;
+  const sum = rs?.summary;
+  const byBatch = rs?.by_batch || [];
+  const redeemDaily = rs?.daily_redemptions || [];
+  const maxRedeemPts = Math.max(1, ...redeemDaily.map(r => Number(r.points) || 0));
+
+  const pctStr = (v) => (typeof v === 'number' && !Number.isNaN(v) ? `${v.toFixed(2)}%` : '—');
+
   return (
     <div className="admin-section">
       <div className="admin-section-header">
@@ -396,6 +414,85 @@ function Reports() {
         <StatCard title="近 7 天调用" value={fmt(overview?.last7days?.calls)} subtitle={`消耗 ${fmt(overview?.last7days?.cost)} 积分`} />
         <StatCard title="近 30 天调用" value={fmt(overview?.last30days?.calls)} subtitle={`消耗 ${fmt(overview?.last30days?.cost)} 积分`} />
       </div>
+
+      {redeemError && (
+        <div className="admin-message" style={{ background: '#3a2f1f', borderColor: '#5a4a2d', color: '#eec8a8' }}>
+          {redeemError}
+        </div>
+      )}
+
+      {sum && (
+        <>
+          <h3 className="admin-report-subtitle">兑换码</h3>
+          <div className="admin-stats-grid">
+            <StatCard title="兑换码张数" value={fmt(sum.code_count)} subtitle={`仍可领取 ${fmt(sum.active_available)} 张`} />
+            <StatCard title="累计兑换次数" value={fmt(sum.redeem_events_total)} subtitle={`发放积分 ${fmt(sum.redeem_points_total)}`} />
+            <StatCard title="名额核销率" value={pctStr(sum.slot_redemption_rate)} subtitle={`已用 ${fmt(sum.used_slots)} / 上限 ${fmt(sum.total_slots)} 次`} />
+            <StatCard title="积分核销率" value={pctStr(sum.points_redemption_rate)} subtitle={`已兑 ${fmt(sum.points_redeemed)} / 容量 ${fmt(sum.points_capacity)}`} />
+            <StatCard title="近 7 天兑换" value={fmt(sum.redeem_events_7d)} subtitle={`发放 ${fmt(sum.redeem_points_7d)} 积分`} />
+            <StatCard title="已停用码" value={fmt(sum.disabled_count)} subtitle="状态为停用的兑换码" />
+          </div>
+
+          <div className="admin-card">
+            <div className="admin-card-header">按批次核销（最近 100 个批次）</div>
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>批次</th>
+                  <th>备注</th>
+                  <th>张数</th>
+                  <th>名额上限</th>
+                  <th>已用名额</th>
+                  <th>名额核销率</th>
+                  <th>积分容量</th>
+                  <th>已兑积分</th>
+                  <th>积分核销率</th>
+                  <th>最近生成</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byBatch.map((b) => (
+                  <tr key={b.batch_id}>
+                    <td><span className="admin-code">{b.batch_id}</span></td>
+                    <td style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.note}>{b.note || '—'}</td>
+                    <td>{fmt(b.codes_count)}</td>
+                    <td>{fmt(b.total_slots)}</td>
+                    <td>{fmt(b.used_slots)}</td>
+                    <td>{pctStr(b.slot_redemption_rate)}</td>
+                    <td>{fmt(b.points_capacity)}</td>
+                    <td>{fmt(b.points_redeemed)}</td>
+                    <td>{pctStr(b.points_redemption_rate)}</td>
+                    <td>{b.last_created ? new Date(b.last_created).toLocaleString('zh-CN') : '—'}</td>
+                  </tr>
+                ))}
+                {byBatch.length === 0 && (
+                  <tr><td colSpan={10} className="admin-empty-cell">暂无批次数据</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="admin-card">
+            <div className="admin-card-header">每日兑换积分（近 {days} 天）</div>
+            <div className="admin-chart">
+              {redeemDaily.length === 0 && <div className="admin-empty">暂无兑换记录</div>}
+              {redeemDaily.map((d) => (
+                <div key={d.day} className="admin-chart-row">
+                  <div className="admin-chart-label">{String(d.day).slice(5)}</div>
+                  <div className="admin-chart-bar-bg">
+                    <div
+                      className="admin-chart-bar"
+                      style={{ width: `${(Number(d.points) / maxRedeemPts) * 100}%` }}
+                      title={`${d.day} · ${fmt(d.points)} 积分 · ${fmt(d.redemptions)} 次`}
+                    />
+                  </div>
+                  <div className="admin-chart-value">{fmt(d.points)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="admin-card">
         <div className="admin-card-header">按类型汇总（累计）</div>

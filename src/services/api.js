@@ -287,6 +287,11 @@ class ApiService {
     return await this.request('/api/admin/stats/models');
   }
 
+  async adminStatsRedeem(days = 30) {
+    const d = Number.isFinite(days) && days > 0 ? Math.min(days, 90) : 30;
+    return await this.request(`/api/admin/stats/redeem?days=${d}`);
+  }
+
   async generateImages(prompt, imageBase64, imageCount, onImageGenerated, signal) {
     const url = `${this.baseURL}/api/images/generate`;
     const token = this.getToken();

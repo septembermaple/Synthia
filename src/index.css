@@ -2105,6 +2105,14 @@ body {
   margin-bottom: 1.5rem;
 }
 .admin-section-header h2 { margin: 0; font-size: 1.4rem; }
+.admin-report-subtitle {
+  margin: 1.75rem 0 0.85rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #d0d4db;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid #2a2f38;
+}
 .admin-message {
   padding: 0.75rem 1rem;
   background: #1f3a2f;

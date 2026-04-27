@@ -571,6 +571,8 @@ async function handleRequest(request, env, path, method) {
     return await handleAdminStatsTopUsers(request, env);
   } else if (path === '/api/admin/stats/models' && method === 'GET') {
     return await handleAdminStatsModels(request, env);
+  } else if (path === '/api/admin/stats/redeem' && method === 'GET') {
+    return await handleAdminStatsRedeem(request, env);
   } else if (path === '/api/admin/redeem-codes' && method === 'GET') {
     return await handleAdminListRedeemCodes(request, env);
   } else if (path === '/api/admin/redeem-codes/generate' && method === 'POST') {
@@ -1716,6 +1718,135 @@ async function handleAdminStatsModels(request, env) {
   ).all();
 
   return { data: rows.results || [] };
+}
+
+function redeemRatePercent(used, total) {
+  const u = Number(used || 0);
+  const t = Number(total || 0);
+  if (!t || t <= 0) return 0;
+  return Math.round((u / t) * 10000) / 100;
+}
+
+async function handleAdminStatsRedeem(request, env) {
+  const guard = await requireAdmin(request, env);
+  if (!guard.ok) return { data: { error: guard.error }, status: guard.status };
+
+  const url = new URL(request.url);
+  const daysRaw = parseInt(url.searchParams.get('days'), 10);
+  const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(daysRaw, 90) : 30;
+
+  try {
+    const summaryRow = await env.DB.prepare(`
+      SELECT
+        COUNT(*) AS code_count,
+        SUM(CASE WHEN status = 'active' AND used_count < max_uses
+          AND (expires_at IS NULL OR expires_at > datetime('now')) THEN 1 ELSE 0 END) AS active_available,
+        SUM(CASE WHEN status = 'disabled' THEN 1 ELSE 0 END) AS disabled_count,
+        COALESCE(SUM(max_uses), 0) AS total_slots,
+        COALESCE(SUM(used_count), 0) AS used_slots,
+        COALESCE(SUM(max_uses * points), 0) AS points_capacity,
+        COALESCE(SUM(used_count * points), 0) AS points_redeemed
+      FROM redeem_codes
+    `).first();
+
+    const logTotal = await env.DB.prepare(
+      'SELECT COUNT(*) AS n, COALESCE(SUM(points), 0) AS pts FROM redeem_logs'
+    ).first();
+    const log7d = await env.DB.prepare(
+      "SELECT COUNT(*) AS n, COALESCE(SUM(points), 0) AS pts FROM redeem_logs WHERE created_at >= datetime('now', '-7 days')"
+    ).first();
+
+    const dailyBind = `-${days} days`;
+    const daily = await env.DB.prepare(
+      `SELECT date(created_at) AS day,
+              COUNT(*) AS redemptions,
+              COALESCE(SUM(points), 0) AS points
+       FROM redeem_logs
+       WHERE created_at >= datetime('now', ?)
+       GROUP BY day
+       ORDER BY day ASC`
+    ).bind(dailyBind).all();
+
+    const batches = await env.DB.prepare(`
+      SELECT
+        batch_id,
+        MAX(note) AS note,
+        COUNT(*) AS codes_count,
+        COALESCE(SUM(max_uses), 0) AS total_slots,
+        COALESCE(SUM(used_count), 0) AS used_slots,
+        COALESCE(SUM(max_uses * points), 0) AS points_capacity,
+        COALESCE(SUM(used_count * points), 0) AS points_redeemed,
+        MAX(created_at) AS last_created
+      FROM redeem_codes
+      WHERE batch_id IS NOT NULL AND batch_id != ''
+      GROUP BY batch_id
+      ORDER BY last_created DESC
+      LIMIT 100
+    `).all();
+
+    const orphan = await env.DB.prepare(`
+      SELECT
+        COUNT(*) AS codes_count,
+        COALESCE(SUM(max_uses), 0) AS total_slots,
+        COALESCE(SUM(used_count), 0) AS used_slots,
+        COALESCE(SUM(max_uses * points), 0) AS points_capacity,
+        COALESCE(SUM(used_count * points), 0) AS points_redeemed,
+        MAX(created_at) AS last_created
+      FROM redeem_codes
+      WHERE batch_id IS NULL OR batch_id = ''
+    `).first();
+
+    const totalSlots = Number(summaryRow?.total_slots || 0);
+    const usedSlots = Number(summaryRow?.used_slots || 0);
+    const pointsCap = Number(summaryRow?.points_capacity || 0);
+    const pointsRed = Number(summaryRow?.points_redeemed || 0);
+
+    const mapBatchRow = (r, batchIdOverride) => ({
+      batch_id: batchIdOverride ?? r.batch_id,
+      note: r.note || '',
+      codes_count: Number(r.codes_count || 0),
+      total_slots: Number(r.total_slots || 0),
+      used_slots: Number(r.used_slots || 0),
+      points_capacity: Number(r.points_capacity || 0),
+      points_redeemed: Number(r.points_redeemed || 0),
+      last_created: r.last_created || null,
+      slot_redemption_rate: redeemRatePercent(r.used_slots, r.total_slots),
+      points_redemption_rate: redeemRatePercent(r.points_redeemed, r.points_capacity),
+    });
+
+    const byBatch = (batches.results || []).map(row => mapBatchRow(row));
+    if (orphan && Number(orphan.codes_count || 0) > 0) {
+      byBatch.push(mapBatchRow({ ...orphan, note: '' }, '(无批次)'));
+    }
+
+    return {
+      data: {
+        summary: {
+          code_count: Number(summaryRow?.code_count || 0),
+          active_available: Number(summaryRow?.active_available || 0),
+          disabled_count: Number(summaryRow?.disabled_count || 0),
+          total_slots: totalSlots,
+          used_slots: usedSlots,
+          slot_redemption_rate: redeemRatePercent(usedSlots, totalSlots),
+          points_capacity: pointsCap,
+          points_redeemed: pointsRed,
+          points_redemption_rate: redeemRatePercent(pointsRed, pointsCap),
+          redeem_events_total: Number(logTotal?.n || 0),
+          redeem_points_total: Number(logTotal?.pts || 0),
+          redeem_events_7d: Number(log7d?.n || 0),
+          redeem_points_7d: Number(log7d?.pts || 0),
+        },
+        by_batch: byBatch,
+        daily_redemptions: daily.results || [],
+      }
+    };
+  } catch (error) {
+    logError(env, 'admin-stats-redeem', error);
+    return {
+      data: { error: '兑换码统计不可用，请确认已执行 migrate-redeem.sql 迁移' },
+      status: 500,
+    };
+  }
 }
 
 // =============== 公开统计（首页统计条） ===============
