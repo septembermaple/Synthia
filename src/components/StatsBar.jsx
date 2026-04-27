@@ -141,26 +141,41 @@ export default function StatsBar() {
   };
 
   return (
-    <div className="stats-bar" ref={containerRef}>
-      <div className="stats-bar-inner">
-        <div className="stats-bar-item">
-          <div className="stats-bar-value">{formatNumber(users)}</div>
-          <div className="stats-bar-label">注册用户</div>
-        </div>
-        <div className="stats-bar-divider" aria-hidden="true" />
-        <div className="stats-bar-item">
-          <div className="stats-bar-value">{formatNumber(images)}</div>
-          <div className="stats-bar-label">已生成写真</div>
-        </div>
-        <div className="stats-bar-divider" aria-hidden="true" />
-        <div className="stats-bar-item">
-          <div className="stats-bar-value stats-bar-live">
-            <span className="stats-bar-dot" />
-            实时
+    <section className="stats-bar" ref={containerRef} aria-label="平台数据概览">
+      <div className="stats-bar-glow" aria-hidden="true" />
+      <div className="stats-bar-wrap">
+        <p className="stats-bar-eyebrow">
+          <span className="stats-bar-live-pill" title="展示数据含估算增长，持续刷新">
+            <span className="stats-bar-live-dot" aria-hidden="true" />
+            实时估算
+          </span>
+          <span className="stats-bar-eyebrow-text">每一张写真，都来自真实的创作热情</span>
+        </p>
+
+        <div className="stats-bar-cards">
+          <div className="stats-bar-card">
+            <span className="stats-bar-card-label">注册用户</span>
+            <div className="stats-bar-card-value">
+              <span className="stats-bar-card-num">{formatNumber(users)}</span>
+              <span className="stats-bar-card-suffix">位</span>
+            </div>
           </div>
-          <div className="stats-bar-label">数据每秒更新</div>
+
+          <div className="stats-bar-join" aria-hidden="true">
+            <span className="stats-bar-join-line" />
+            <span className="stats-bar-join-icon">✦</span>
+            <span className="stats-bar-join-line" />
+          </div>
+
+          <div className="stats-bar-card">
+            <span className="stats-bar-card-label">已生成写真</span>
+            <div className="stats-bar-card-value">
+              <span className="stats-bar-card-num">{formatNumber(images)}</span>
+              <span className="stats-bar-card-suffix">张</span>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </section>
   );
 }
