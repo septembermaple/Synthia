@@ -10,8 +10,8 @@ database_id = "551bbb9a-c286-4c9a-b822-3f45fc86a372"
 
 [vars]
 ENVIRONMENT = "production"
-ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,https://synthia-bk4.pages.dev"
-ADMIN_PHONES = ""
+# 注意：ALLOWED_ORIGINS / ADMIN_PHONES / JWT_SECRET / DOUBAO_API_KEY / ARK_API_KEY / ADMIN_SECRET
+# 通过 `npx wrangler secret put <NAME>` 配置，不要在这里再声明同名 vars，否则会覆盖 secret。
 
 [observability]
 enabled = true

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import api from './services/api';
+import StatsBar from './components/StatsBar';
 
 const sceneCategories = {
   '自然与旷野': [
@@ -445,6 +446,9 @@ function App({ requireAuth }) {
           </svg>
         </div>
       </section>
+
+      {/* Stats Bar */}
+      <StatsBar />
 
       {/* Gallery Section */}
       <section className="gallery-section">

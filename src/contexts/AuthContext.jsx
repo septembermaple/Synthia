@@ -111,6 +111,19 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const redeemCode = async (code) => {
+    if (!user) return { success: false, message: '未登录' };
+    try {
+      const result = await api.redeemCode(code);
+      if (result?.success && typeof result.balance === 'number') {
+        setUser({ ...user, points: result.balance });
+      }
+      return result;
+    } catch (error) {
+      return { success: false, message: error.message || '兑换失败' };
+    }
+  };
+
   const consumePoints = async (amount, description) => {
     if (!user) return { success: false, message: '未登录' };
     if (user.points < amount) {
@@ -176,6 +189,7 @@ export const AuthProvider = ({ children }) => {
       loading,
       updatePassword,
       addPoints,
+      redeemCode,
       consumePoints,
       getTransactions,
       saveGenerationRecord,

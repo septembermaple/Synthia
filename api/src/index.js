@@ -545,6 +545,12 @@ async function handleRequest(request, env, path, method) {
     return await handleGetUsedPrompts(request, env);
   } else if (path === '/api/prompts/mark-used' && method === 'POST') {
     return await handleMarkPromptUsed(request, env);
+  } else if (path === '/api/redeem' && method === 'POST') {
+    return await handleRedeemCode(request, env);
+  } else if (path === '/api/redeem/history' && method === 'GET') {
+    return await handleRedeemHistory(request, env);
+  } else if (path === '/api/stats/public' && method === 'GET') {
+    return await handlePublicStats(request, env);
   } else if (path === '/api/admin/me' && method === 'GET') {
     return await handleAdminMe(request, env);
   } else if (path === '/api/admin/models' && method === 'GET') {
@@ -565,6 +571,14 @@ async function handleRequest(request, env, path, method) {
     return await handleAdminStatsTopUsers(request, env);
   } else if (path === '/api/admin/stats/models' && method === 'GET') {
     return await handleAdminStatsModels(request, env);
+  } else if (path === '/api/admin/redeem-codes' && method === 'GET') {
+    return await handleAdminListRedeemCodes(request, env);
+  } else if (path === '/api/admin/redeem-codes/generate' && method === 'POST') {
+    return await handleAdminGenerateRedeemCodes(request, env);
+  } else if (path.match(/^\/api\/admin\/redeem-codes\/\d+\/disable$/) && method === 'POST') {
+    return await handleAdminDisableRedeemCode(request, env, path);
+  } else if (path.match(/^\/api\/admin\/redeem-codes\/\d+\/logs$/) && method === 'GET') {
+    return await handleAdminRedeemCodeLogs(request, env, path);
   } else {
     return { data: { error: 'Not found' }, status: 404 };
   }
@@ -1702,4 +1716,359 @@ async function handleAdminStatsModels(request, env) {
   ).all();
 
   return { data: rows.results || [] };
+}
+
+// =============== 公开统计（首页统计条） ===============
+
+async function handlePublicStats(request, env) {
+  // 首页"已为 X 位用户生成 Y 张写真"统计条
+  // 真实数据 + 虚拟基线（早期 MVP 数据少，做一个时间增长曲线让数字"活"起来）
+  // VIRTUAL_BASE_AT 之后每秒再叠加固定增长，避免给用户"产品没人用"的观感。
+  let realUsers = 0;
+  let realImages = 0;
+  try {
+    const [u, g] = await Promise.all([
+      env.DB.prepare('SELECT COUNT(*) AS n FROM users').first(),
+      env.DB.prepare(
+        "SELECT COALESCE(SUM(units), 0) AS n FROM api_usage_logs WHERE model_type = 'image' AND success = 1"
+      ).first(),
+    ]);
+    realUsers = Number(u?.n || 0);
+    realImages = Number(g?.n || 0);
+  } catch (error) {
+    logError(env, 'public-stats', error);
+  }
+
+  const VIRTUAL = virtualBaseline();
+  const userCount = realUsers + VIRTUAL.users;
+  const imageCount = realImages + VIRTUAL.images;
+
+  return {
+    data: {
+      userCount,
+      imageCount,
+      realUsers,
+      realImages,
+      virtualUsers: VIRTUAL.users,
+      virtualImages: VIRTUAL.images,
+      tickPerSecond: VIRTUAL.tickPerSecond,
+      // 让前端做平滑动画用的"基准秒数"，前端可以基于本地时间继续递增
+      serverTs: Date.now(),
+    }
+  };
+}
+
+// 虚拟基线：以 2024-01-01 为锚点开始增长
+// 调整这里的常量即可控制"看起来已运营多久"
+function virtualBaseline() {
+  const ANCHOR_TS = Date.parse('2024-01-01T00:00:00Z');
+  const USERS_PER_SECOND = 0.022;     // ~ 1900 用户 / 天
+  const IMAGES_PER_SECOND = 0.78;     // ~ 67000 图 / 天
+  const SEED_USERS = 8200;
+  const SEED_IMAGES = 352000;
+  const elapsedSec = Math.max(0, Math.floor((Date.now() - ANCHOR_TS) / 1000));
+  return {
+    users: SEED_USERS + Math.floor(elapsedSec * USERS_PER_SECOND),
+    images: SEED_IMAGES + Math.floor(elapsedSec * IMAGES_PER_SECOND),
+    tickPerSecond: { users: USERS_PER_SECOND, images: IMAGES_PER_SECOND },
+  };
+}
+
+// =============== 兑换码 ===============
+
+// 字符集去掉了 0/O/I/L/1，避免抄写歧义
+const REDEEM_CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+function generateRedeemCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  let s = '';
+  for (let i = 0; i < 12; i++) {
+    s += REDEEM_CHARSET[bytes[i] % REDEEM_CHARSET.length];
+  }
+  return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8, 12)}`;
+}
+
+function normalizeRedeemCode(input) {
+  if (typeof input !== 'string') return '';
+  // 去空格、去连字符、转大写
+  return input.trim().toUpperCase().replace(/[\s-]+/g, '');
+}
+
+function redeemCodeStatus(row) {
+  if (!row) return 'not_found';
+  if (row.status === 'disabled') return 'disabled';
+  if (row.expires_at) {
+    const exp = Date.parse(row.expires_at);
+    if (Number.isFinite(exp) && exp < Date.now()) return 'expired';
+  }
+  if (row.used_count >= row.max_uses) return 'used_up';
+  return 'active';
+}
+
+async function handleRedeemCode(request, env) {
+  const token = getUserId(request);
+  const userId = token ? await verifyTokenAndGetUserId(token, env) : null;
+  if (!userId) {
+    return { data: { error: '未登录' }, status: 401 };
+  }
+
+  // 防爆破：每用户每分钟最多 10 次，每 IP 每分钟最多 30 次
+  const ip = getClientIp(request);
+  const ru = await checkRateLimit(env, `redeem-u:${userId}`, 10, 60);
+  if (!ru.allowed) {
+    return { data: { error: '兑换过于频繁，请稍后再试' }, status: 429 };
+  }
+  const ri = await checkRateLimit(env, `redeem-ip:${ip}`, 30, 60);
+  if (!ri.allowed) {
+    return { data: { error: '兑换过于频繁，请稍后再试' }, status: 429 };
+  }
+
+  const body = await readJsonBody(request);
+  const raw = body?.code;
+  const normalized = normalizeRedeemCode(raw);
+  if (!normalized || normalized.length < 6 || normalized.length > 32) {
+    return { data: { error: '兑换码格式错误' }, status: 400 };
+  }
+  // 数据库里以 XXXX-XXXX-XXXX 形式存储
+  const formatted = normalized.length === 12
+    ? `${normalized.slice(0, 4)}-${normalized.slice(4, 8)}-${normalized.slice(8, 12)}`
+    : normalized;
+
+  const row = await env.DB.prepare(
+    'SELECT * FROM redeem_codes WHERE code = ? OR REPLACE(code, "-", "") = ?'
+  ).bind(formatted, normalized).first();
+
+  if (!row) {
+    return { data: { error: '兑换码不存在' }, status: 404 };
+  }
+
+  const stat = redeemCodeStatus(row);
+  if (stat === 'disabled') return { data: { error: '该兑换码已停用' }, status: 400 };
+  if (stat === 'expired')  return { data: { error: '该兑换码已过期' }, status: 400 };
+  if (stat === 'used_up')  return { data: { error: '该兑换码已被领取完' }, status: 400 };
+
+  // 防同一用户重复领取
+  const existed = await env.DB.prepare(
+    'SELECT 1 FROM redeem_logs WHERE code_id = ? AND user_id = ?'
+  ).bind(row.id, userId).first();
+  if (existed) {
+    return { data: { error: '你已领取过该兑换码' }, status: 400 };
+  }
+
+  const points = parsePositiveInt(row.points, 10000000);
+  if (!points) {
+    return { data: { error: '兑换码配置异常' }, status: 500 };
+  }
+
+  // 并发安全：条件 UPDATE + 流水 INSERT + 加积分 + 加交易记录，在一个 batch 里执行
+  // used_count 必须严格小于 max_uses 才生效；否则 changes = 0，回退报错
+  let batchResults;
+  try {
+    batchResults = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE redeem_codes
+         SET used_count = used_count + 1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND status = 'active' AND used_count < max_uses
+           AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`
+      ).bind(row.id),
+      env.DB.prepare(
+        `INSERT INTO redeem_logs (code_id, code, user_id, points, ip)
+         VALUES (?, ?, ?, ?, ?)`
+      ).bind(row.id, row.code, userId, points, (ip || '').slice(0, 64)),
+      env.DB.prepare(
+        'UPDATE users SET points = points + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+      ).bind(points, userId),
+      env.DB.prepare(
+        `INSERT INTO transactions (user_id, amount, type, description, balance)
+         SELECT ?, ?, '充值', ?, points FROM users WHERE id = ?`
+      ).bind(userId, points, `兑换码 ${row.code}`, userId),
+    ]);
+  } catch (error) {
+    // UNIQUE(code_id,user_id) 触发也走这里
+    logError(env, 'redeem', error);
+    return { data: { error: '兑换失败，请确认兑换码是否已使用' }, status: 400 };
+  }
+
+  // batch[0] 的 changes 为 0 表示并发抢占失败（已被领完 / 被作废）
+  if (!batchResults?.[0]?.meta?.changes) {
+    return { data: { error: '该兑换码已被领取完' }, status: 400 };
+  }
+
+  const after = await env.DB.prepare('SELECT points FROM users WHERE id = ?').bind(userId).first();
+
+  return {
+    data: {
+      success: true,
+      points,
+      balance: after?.points ?? 0,
+      message: `兑换成功，已到账 ${points} 积分`,
+    }
+  };
+}
+
+async function handleRedeemHistory(request, env) {
+  const token = getUserId(request);
+  const userId = token ? await verifyTokenAndGetUserId(token, env) : null;
+  if (!userId) {
+    return { data: { error: '未登录' }, status: 401 };
+  }
+  const limitRaw = parseInt(new URL(request.url).searchParams.get('limit'), 10);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : 20;
+
+  const rows = await env.DB.prepare(
+    'SELECT id, code, points, created_at FROM redeem_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?'
+  ).bind(userId, limit).all();
+
+  return { data: rows.results || [] };
+}
+
+async function handleAdminListRedeemCodes(request, env) {
+  const guard = await requireAdmin(request, env);
+  if (!guard.ok) return { data: { error: guard.error }, status: guard.status };
+
+  const url = new URL(request.url);
+  const limitRaw = parseInt(url.searchParams.get('limit'), 10);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 50;
+  const status = url.searchParams.get('status');
+  const batchId = url.searchParams.get('batch_id');
+  const keyword = url.searchParams.get('q');
+
+  const conditions = [];
+  const binds = [];
+  if (status && ['active', 'disabled'].includes(status)) {
+    conditions.push('status = ?');
+    binds.push(status);
+  }
+  if (batchId) {
+    conditions.push('batch_id = ?');
+    binds.push(batchId.slice(0, 64));
+  }
+  if (keyword) {
+    conditions.push('(code LIKE ? OR note LIKE ?)');
+    const kw = `%${keyword.slice(0, 60)}%`;
+    binds.push(kw, kw);
+  }
+  let sql = 'SELECT * FROM redeem_codes';
+  if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
+  sql += ' ORDER BY created_at DESC LIMIT ?';
+  binds.push(limit);
+
+  const rows = await env.DB.prepare(sql).bind(...binds).all();
+  return { data: rows.results || [] };
+}
+
+async function handleAdminGenerateRedeemCodes(request, env) {
+  const guard = await requireAdmin(request, env);
+  if (!guard.ok) return { data: { error: guard.error }, status: guard.status };
+
+  const body = await readJsonBody(request);
+  if (!body || typeof body !== 'object') {
+    return { data: { error: '请求参数无效' }, status: 400 };
+  }
+  const points = parsePositiveInt(body.points, 10000000);
+  if (!points) return { data: { error: '面值积分非法' }, status: 400 };
+  // 一次最多生成 200 张，防误操作
+  const count = parsePositiveInt(body.count, 200);
+  if (!count) return { data: { error: '生成数量需为 1~200' }, status: 400 };
+  const maxUses = parsePositiveInt(body.max_uses, 1000000) || 1;
+
+  let expiresAt = null;
+  if (body.expires_at !== undefined && body.expires_at !== null && body.expires_at !== '') {
+    const t = Date.parse(body.expires_at);
+    if (!Number.isFinite(t)) {
+      return { data: { error: '过期时间格式无效' }, status: 400 };
+    }
+    expiresAt = new Date(t).toISOString();
+  }
+  const note = typeof body.note === 'string' ? body.note.slice(0, 200) : '';
+  // 批次号自动生成（YYYYMMDD-HHMMSS-RAND）
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const batchId = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}-`
+    + `${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}-`
+    + Math.random().toString(36).slice(2, 6).toUpperCase();
+
+  const generated = [];
+  for (let i = 0; i < count; i++) {
+    // 极小概率撞码，最多重试 5 次
+    let inserted = false;
+    for (let attempt = 0; attempt < 5 && !inserted; attempt++) {
+      const code = generateRedeemCode();
+      try {
+        await env.DB.prepare(
+          `INSERT INTO redeem_codes (code, points, max_uses, status, expires_at, batch_id, note, created_by)
+           VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`
+        ).bind(code, points, maxUses, expiresAt, batchId, note, guard.userId).run();
+        generated.push(code);
+        inserted = true;
+      } catch (error) {
+        if (attempt === 4) {
+          logError(env, 'redeem-generate', error);
+          return { data: { error: '生成失败，请稍后再试' }, status: 500 };
+        }
+      }
+    }
+  }
+
+  await logAdminAudit(env, {
+    adminUserId: guard.userId, adminPhone: guard.phone,
+    action: 'redeem.generate', target: `batch:${batchId}`,
+    payload: { count: generated.length, points, max_uses: maxUses, expires_at: expiresAt, note },
+  });
+
+  return {
+    data: {
+      success: true,
+      batch_id: batchId,
+      codes: generated,
+      count: generated.length,
+    }
+  };
+}
+
+async function handleAdminDisableRedeemCode(request, env, path) {
+  const guard = await requireAdmin(request, env);
+  if (!guard.ok) return { data: { error: guard.error }, status: guard.status };
+
+  const id = parsePositiveInt(path.split('/')[4]);
+  if (!id) return { data: { error: 'id 无效' }, status: 400 };
+
+  const result = await env.DB.prepare(
+    "UPDATE redeem_codes SET status = 'disabled', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+  ).bind(id).run();
+
+  if (!result?.meta?.changes) {
+    return { data: { error: '兑换码不存在' }, status: 404 };
+  }
+
+  await logAdminAudit(env, {
+    adminUserId: guard.userId, adminPhone: guard.phone,
+    action: 'redeem.disable', target: `code:${id}`,
+  });
+
+  return { data: { success: true } };
+}
+
+async function handleAdminRedeemCodeLogs(request, env, path) {
+  const guard = await requireAdmin(request, env);
+  if (!guard.ok) return { data: { error: guard.error }, status: guard.status };
+
+  const id = parsePositiveInt(path.split('/')[4]);
+  if (!id) return { data: { error: 'id 无效' }, status: 400 };
+
+  const rows = await env.DB.prepare(
+    `SELECT l.id, l.user_id, u.phone, l.points, l.created_at
+     FROM redeem_logs l
+     LEFT JOIN users u ON u.id = l.user_id
+     WHERE l.code_id = ?
+     ORDER BY l.created_at DESC
+     LIMIT 200`
+  ).bind(id).all();
+
+  const masked = (rows.results || []).map(r => ({
+    ...r,
+    phone: r.phone ? String(r.phone).replace(/(\d{3})\d{4}(\d{4})/, '$1****$2') : '-',
+  }));
+
+  return { data: masked };
 }

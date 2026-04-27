@@ -95,6 +95,34 @@ CREATE TABLE IF NOT EXISTS admin_audit_logs (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 兑换码主表
+CREATE TABLE IF NOT EXISTS redeem_codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT UNIQUE NOT NULL,
+  points INTEGER NOT NULL,
+  max_uses INTEGER NOT NULL DEFAULT 1,
+  used_count INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'active',  -- active | disabled
+  expires_at TEXT,
+  batch_id TEXT DEFAULT '',
+  note TEXT DEFAULT '',
+  created_by INTEGER,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 兑换记录（同码同人仅一次）
+CREATE TABLE IF NOT EXISTS redeem_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code_id INTEGER NOT NULL,
+  code TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  points INTEGER NOT NULL,
+  ip TEXT DEFAULT '',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(code_id, user_id)
+);
+
 -- 创建索引
 CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
@@ -110,3 +138,9 @@ CREATE INDEX IF NOT EXISTS idx_usage_created ON api_usage_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_type ON api_usage_logs(model_type);
 CREATE INDEX IF NOT EXISTS idx_admin_audit_admin ON admin_audit_logs(admin_user_id);
 CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_redeem_codes_status  ON redeem_codes(status);
+CREATE INDEX IF NOT EXISTS idx_redeem_codes_batch   ON redeem_codes(batch_id);
+CREATE INDEX IF NOT EXISTS idx_redeem_codes_created ON redeem_codes(created_at);
+CREATE INDEX IF NOT EXISTS idx_redeem_logs_code     ON redeem_logs(code_id);
+CREATE INDEX IF NOT EXISTS idx_redeem_logs_user     ON redeem_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_redeem_logs_created  ON redeem_logs(created_at);

@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import api from '../services/api';
 import JSZip from 'jszip';
 
 function Dashboard() {
-  const { user, isAdmin, logout, updatePassword, addPoints, deleteAccount, getTransactions, getGenerationRecords, deleteGenerationRecord } = useAuth();
+  const { user, isAdmin, logout, updatePassword, addPoints, redeemCode, deleteAccount, getTransactions, getGenerationRecords, deleteGenerationRecord } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [showRechargeModal, setShowRechargeModal] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
   const [rechargeAmount, setRechargeAmount] = useState(100);
   const [message, setMessage] = useState('');
@@ -16,6 +15,11 @@ function Dashboard() {
   const [transactions, setTransactions] = useState([]);
   const [deleteForm, setDeleteForm] = useState({ password: '', confirm: '' });
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const [redeemInput, setRedeemInput] = useState('');
+  const [redeemLoading, setRedeemLoading] = useState(false);
+  const [redeemMessage, setRedeemMessage] = useState(null);
+  const [redeemHistory, setRedeemHistory] = useState([]);
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -33,7 +37,44 @@ function Dashboard() {
       };
       fetchRecords();
     }
+    if (activeTab === 'recharge') {
+      loadRedeemHistory();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  const loadRedeemHistory = async () => {
+    try {
+      const data = await api.getRedeemHistory(20);
+      setRedeemHistory(Array.isArray(data) ? data : []);
+    } catch {
+      setRedeemHistory([]);
+    }
+  };
+
+  const handleRedeem = async () => {
+    const code = (redeemInput || '').trim();
+    if (!code) {
+      setRedeemMessage({ type: 'error', text: '请输入兑换码' });
+      return;
+    }
+    setRedeemLoading(true);
+    setRedeemMessage(null);
+    try {
+      const result = await redeemCode(code);
+      if (result?.success) {
+        setRedeemMessage({ type: 'success', text: result.message || `兑换成功，已到账 ${result.points} 积分` });
+        setRedeemInput('');
+        loadRedeemHistory();
+      } else {
+        setRedeemMessage({ type: 'error', text: result?.message || '兑换失败' });
+      }
+    } catch (err) {
+      setRedeemMessage({ type: 'error', text: err?.message || '兑换失败' });
+    } finally {
+      setRedeemLoading(false);
+    }
+  };
 
   const formatTime = (timeStr) => {
     if (!timeStr) return '-';
@@ -127,7 +168,6 @@ function Dashboard() {
       const result = await updatePassword(passwordForm.oldPassword, passwordForm.newPassword);
       if (result?.success) {
         setMessage('密码修改成功');
-        setShowPasswordModal(false);
         setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
       } else {
         setMessage(result?.message || '密码修改失败');
@@ -146,7 +186,6 @@ function Dashboard() {
     const result = await addPoints(amount, `充值${amount}积分`);
     if (result?.success) {
       setMessage(result.message || '充值成功');
-      setShowRechargeModal(false);
       setRechargeAmount(100);
     } else {
       setMessage(result?.message || '充值失败');
@@ -212,14 +251,12 @@ function Dashboard() {
             >
               🔐 修改密码
             </button>
-            {isAdmin && (
-              <button
-                className={`menu-item ${activeTab === 'recharge' ? 'active' : ''}`}
-                onClick={() => setActiveTab('recharge')}
-              >
-                💳 积分充值
-              </button>
-            )}
+            <button
+              className={`menu-item ${activeTab === 'recharge' ? 'active' : ''}`}
+              onClick={() => setActiveTab('recharge')}
+            >
+              💳 积分中心
+            </button>
             <button
               className={`menu-item ${activeTab === 'history' ? 'active' : ''}`}
               onClick={() => setActiveTab('history')}
@@ -329,45 +366,97 @@ function Dashboard() {
             </div>
           )}
 
-          {activeTab === 'recharge' && isAdmin && (
+          {activeTab === 'recharge' && (
             <div className="recharge-section">
-              <h2>积分充值（管理员）</h2>
+              <h2>积分中心</h2>
               <div className="current-points">
                 当前积分：<span className="highlight">{user.points}</span>
               </div>
 
-              <div className="recharge-options">
-                <h3>选择充值金额</h3>
-                <div className="amount-grid">
-                  {[100, 200, 500, 1000, 2000, 5000].map(amount => (
-                    <button
-                      key={amount}
-                      className={`amount-option ${rechargeAmount === amount ? 'selected' : ''}`}
-                      onClick={() => setRechargeAmount(amount)}
-                    >
-                      {amount} 积分
-                    </button>
-                  ))}
-                </div>
-
-                <div className="custom-amount">
-                  <label>自定义金额</label>
+              <div className="redeem-card">
+                <h3>🎁 使用兑换码</h3>
+                <p className="redeem-hint">输入兑换码，可立即获得对应积分。每个兑换码每个账号仅能使用一次。</p>
+                <div className="redeem-input-row">
                   <input
-                    type="number"
-                    value={rechargeAmount}
-                    onChange={(e) => setRechargeAmount(Number(e.target.value))}
-                    min="1"
+                    type="text"
+                    className="redeem-input"
+                    placeholder="例如 AAAA-BBBB-CCCC"
+                    value={redeemInput}
+                    onChange={(e) => setRedeemInput(e.target.value)}
+                    maxLength={32}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !redeemLoading) handleRedeem(); }}
                   />
+                  <button
+                    type="button"
+                    className="redeem-btn"
+                    onClick={handleRedeem}
+                    disabled={redeemLoading || !redeemInput.trim()}
+                  >
+                    {redeemLoading ? '兑换中...' : '立即兑换'}
+                  </button>
                 </div>
+                {redeemMessage && (
+                  <div className={`redeem-message ${redeemMessage.type}`}>
+                    {redeemMessage.text}
+                  </div>
+                )}
 
-                <button className="recharge-btn" onClick={handleRecharge}>
-                  立即充值 {rechargeAmount} 积分
-                </button>
-
-                <p className="recharge-note">
-                  注：仅管理员可见。普通用户充值需后续接入支付接口。
-                </p>
+                {redeemHistory.length > 0 && (
+                  <div className="redeem-history">
+                    <h4>最近兑换记录</h4>
+                    <ul>
+                      {redeemHistory.map(item => (
+                        <li key={item.id}>
+                          <span className="redeem-history-code">{item.code}</span>
+                          <span className="redeem-history-points">+{item.points}</span>
+                          <span className="redeem-history-time">{formatTime(item.created_at)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
+
+              {isAdmin && (
+                <div className="recharge-options">
+                  <h3>💼 管理员快速充值</h3>
+                  <p className="recharge-note">仅管理员可见，用于内部测试 / 客服补偿。</p>
+                  <div className="amount-grid">
+                    {[100, 200, 500, 1000, 2000, 5000].map(amount => (
+                      <button
+                        key={amount}
+                        className={`amount-option ${rechargeAmount === amount ? 'selected' : ''}`}
+                        onClick={() => setRechargeAmount(amount)}
+                      >
+                        {amount} 积分
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="custom-amount">
+                    <label>自定义金额</label>
+                    <input
+                      type="number"
+                      value={rechargeAmount}
+                      onChange={(e) => setRechargeAmount(Number(e.target.value))}
+                      min="1"
+                    />
+                  </div>
+
+                  <button className="recharge-btn" onClick={handleRecharge}>
+                    立即充值 {rechargeAmount} 积分
+                  </button>
+                </div>
+              )}
+
+              {!isAdmin && (
+                <div className="recharge-info">
+                  <h3>💳 充值说明</h3>
+                  <p>当前在线支付通道暂未开放，可使用兑换码快速到账。如需大额充值，请联系客服。</p>
+                </div>
+              )}
+
+              {message && <div className="message">{message}</div>}
             </div>
           )}
 

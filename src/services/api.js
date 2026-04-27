@@ -192,6 +192,48 @@ class ApiService {
     });
   }
 
+  async getPublicStats() {
+    return await this.request('/api/stats/public');
+  }
+
+  async redeemCode(code) {
+    return await this.request('/api/redeem', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+  }
+
+  async getRedeemHistory(limit = 20) {
+    return await this.request(`/api/redeem/history?limit=${limit}`);
+  }
+
+  async adminListRedeemCodes(params = {}) {
+    const usp = new URLSearchParams();
+    if (params.limit) usp.set('limit', String(params.limit));
+    if (params.status) usp.set('status', params.status);
+    if (params.batch_id) usp.set('batch_id', params.batch_id);
+    if (params.q) usp.set('q', params.q);
+    const qs = usp.toString();
+    return await this.request(`/api/admin/redeem-codes${qs ? `?${qs}` : ''}`);
+  }
+
+  async adminGenerateRedeemCodes(payload) {
+    return await this.request('/api/admin/redeem-codes/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async adminDisableRedeemCode(id) {
+    return await this.request(`/api/admin/redeem-codes/${id}/disable`, {
+      method: 'POST',
+    });
+  }
+
+  async adminRedeemCodeLogs(id) {
+    return await this.request(`/api/admin/redeem-codes/${id}/logs`);
+  }
+
   async adminMe() {
     return await this.request('/api/admin/me');
   }

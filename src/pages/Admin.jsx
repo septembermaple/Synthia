@@ -75,6 +75,10 @@ export default function Admin() {
             onClick={() => setActiveTab('models')}
           >📦 模型管理</button>
           <button
+            className={`admin-nav-item ${activeTab === 'redeem' ? 'active' : ''}`}
+            onClick={() => setActiveTab('redeem')}
+          >🎁 兑换码</button>
+          <button
             className={`admin-nav-item ${activeTab === 'stats' ? 'active' : ''}`}
             onClick={() => setActiveTab('stats')}
           >📊 报表统计</button>
@@ -86,6 +90,7 @@ export default function Admin() {
 
       <main className="admin-main">
         {activeTab === 'models' && <ModelManagement />}
+        {activeTab === 'redeem' && <RedeemCodeManagement />}
         {activeTab === 'stats' && <Reports />}
       </main>
     </div>
@@ -491,6 +496,355 @@ function StatCard({ title, value, subtitle }) {
       <div className="admin-stat-title">{title}</div>
       <div className="admin-stat-value">{value}</div>
       {subtitle && <div className="admin-stat-sub">{subtitle}</div>}
+    </div>
+  );
+}
+
+function RedeemCodeManagement() {
+  const [codes, setCodes] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const [filter, setFilter] = useState({ status: '', q: '', batch_id: '' });
+  const [showGenerator, setShowGenerator] = useState(false);
+  const [lastBatch, setLastBatch] = useState(null); // { batch_id, codes, count, points }
+  const [logsFor, setLogsFor] = useState(null);     // 当前查看使用记录的 code 行
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await api.adminListRedeemCodes({
+        limit: 200,
+        status: filter.status || undefined,
+        q: filter.q || undefined,
+        batch_id: filter.batch_id || undefined,
+      });
+      setCodes(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setMessage('加载失败：' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const handleDisable = async (id) => {
+    if (!confirm('确认停用该兑换码？停用后无法恢复，但已兑换的不受影响。')) return;
+    try {
+      await api.adminDisableRedeemCode(id);
+      setMessage('已停用');
+      await load();
+    } catch (e) {
+      setMessage('停用失败：' + e.message);
+    }
+  };
+
+  const fmt = (s) => {
+    if (!s) return '-';
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return '-';
+    return d.toLocaleString('zh-CN');
+  };
+
+  const computeStatus = (row) => {
+    if (row.status === 'disabled') return { label: '已停用', cls: 'off' };
+    if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) {
+      return { label: '已过期', cls: 'off' };
+    }
+    if (row.used_count >= row.max_uses) return { label: '已用完', cls: 'off' };
+    return { label: '可用', cls: 'ok' };
+  };
+
+  return (
+    <div className="admin-section">
+      <div className="admin-section-header">
+        <h2>兑换码管理</h2>
+        <button className="admin-btn-primary" onClick={() => setShowGenerator(true)}>+ 生成兑换码</button>
+      </div>
+
+      {message && <div className="admin-message" onClick={() => setMessage('')}>{message}</div>}
+
+      {lastBatch && (
+        <div className="admin-card">
+          <div className="admin-card-header">
+            ✅ 上次生成结果（批次 {lastBatch.batch_id}，共 {lastBatch.count} 张，单张面值 {lastBatch.points} 积分）
+            <button className="admin-btn-link" style={{ float: 'right' }} onClick={() => setLastBatch(null)}>关闭</button>
+          </div>
+          <div style={{ padding: '0.75rem 1rem' }}>
+            <div className="admin-redeem-codelist">
+              {lastBatch.codes.map(c => <code key={c}>{c}</code>)}
+            </div>
+            <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+              <button
+                className="admin-btn-ghost"
+                onClick={() => {
+                  navigator.clipboard?.writeText(lastBatch.codes.join('\n'))
+                    .then(() => setMessage('已复制到剪贴板'))
+                    .catch(() => setMessage('复制失败，请手动选择'));
+                }}
+              >📋 复制全部</button>
+              <button
+                className="admin-btn-ghost"
+                onClick={() => {
+                  const blob = new Blob([lastBatch.codes.join('\r\n')], { type: 'text/plain;charset=utf-8' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `redeem-codes-${lastBatch.batch_id}.txt`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                }}
+              >⬇️ 下载 TXT</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="admin-card">
+        <div className="admin-card-header">筛选</div>
+        <div style={{ padding: '0.75rem 1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
+          <div>
+            <label className="admin-hint">状态</label>
+            <select value={filter.status} onChange={e => setFilter(f => ({ ...f, status: e.target.value }))}
+              style={{ width: '100%', padding: '0.4rem', background: '#0f1218', color: '#e6e8eb', border: '1px solid #2a2f38', borderRadius: 6 }}>
+              <option value="">全部</option>
+              <option value="active">启用</option>
+              <option value="disabled">停用</option>
+            </select>
+          </div>
+          <div>
+            <label className="admin-hint">关键词（兑换码 / 备注）</label>
+            <input value={filter.q} onChange={e => setFilter(f => ({ ...f, q: e.target.value }))}
+              style={{ width: '100%', padding: '0.4rem', background: '#0f1218', color: '#e6e8eb', border: '1px solid #2a2f38', borderRadius: 6 }} />
+          </div>
+          <div>
+            <label className="admin-hint">批次号</label>
+            <input value={filter.batch_id} onChange={e => setFilter(f => ({ ...f, batch_id: e.target.value }))}
+              style={{ width: '100%', padding: '0.4rem', background: '#0f1218', color: '#e6e8eb', border: '1px solid #2a2f38', borderRadius: 6 }} />
+          </div>
+          <div>
+            <button className="admin-btn-ghost" onClick={load}>🔍 查询</button>
+          </div>
+        </div>
+      </div>
+
+      {loading && <div className="admin-loading">加载中...</div>}
+
+      <div className="admin-card">
+        <div className="admin-card-header">兑换码列表（最近 200 条）</div>
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>兑换码</th>
+              <th>面值</th>
+              <th>使用 / 上限</th>
+              <th>状态</th>
+              <th>过期时间</th>
+              <th>批次</th>
+              <th>备注</th>
+              <th>创建时间</th>
+              <th style={{ minWidth: 160 }}>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {codes.map(c => {
+              const st = computeStatus(c);
+              return (
+                <tr key={c.id}>
+                  <td><code className="admin-code">{c.code}</code></td>
+                  <td>{c.points}</td>
+                  <td>{c.used_count} / {c.max_uses}</td>
+                  <td><span className={`admin-badge ${st.cls}`}>{st.label}</span></td>
+                  <td>{c.expires_at ? fmt(c.expires_at) : '永久'}</td>
+                  <td><span style={{ fontSize: '0.75rem', color: '#858c97' }}>{c.batch_id || '-'}</span></td>
+                  <td style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.note}>{c.note || '-'}</td>
+                  <td>{fmt(c.created_at)}</td>
+                  <td>
+                    <button className="admin-btn-link" onClick={() => setLogsFor(c)}>使用记录</button>
+                    {c.status === 'active' && (
+                      <button className="admin-btn-link danger" onClick={() => handleDisable(c.id)}>停用</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {codes.length === 0 && !loading && (
+              <tr><td colSpan={9} className="admin-empty-cell">暂无数据</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {showGenerator && (
+        <RedeemGeneratorModal
+          onCancel={() => setShowGenerator(false)}
+          onSuccess={(result) => {
+            setShowGenerator(false);
+            setLastBatch(result);
+            load();
+          }}
+        />
+      )}
+
+      {logsFor && (
+        <RedeemLogsModal
+          code={logsFor}
+          onClose={() => setLogsFor(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function RedeemGeneratorModal({ onCancel, onSuccess }) {
+  const [form, setForm] = useState({
+    points: 100,
+    count: 10,
+    max_uses: 1,
+    expires_at: '',
+    note: '',
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const upd = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    const points = Number(form.points);
+    const count = Number(form.count);
+    const maxUses = Number(form.max_uses) || 1;
+    if (!Number.isInteger(points) || points <= 0) return setError('面值积分需为正整数');
+    if (!Number.isInteger(count) || count <= 0 || count > 200) return setError('生成数量需为 1~200');
+    if (!Number.isInteger(maxUses) || maxUses <= 0) return setError('使用次数上限需为正整数');
+
+    setLoading(true);
+    try {
+      const result = await api.adminGenerateRedeemCodes({
+        points,
+        count,
+        max_uses: maxUses,
+        expires_at: form.expires_at || null,
+        note: form.note || '',
+      });
+      if (result?.success) {
+        onSuccess({
+          batch_id: result.batch_id,
+          codes: result.codes || [],
+          count: result.count || 0,
+          points,
+        });
+      } else {
+        setError('生成失败');
+      }
+    } catch (err) {
+      setError('生成失败：' + (err?.message || ''));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="admin-modal-overlay" onClick={onCancel}>
+      <form className="admin-modal" onClick={e => e.stopPropagation()} onSubmit={submit}>
+        <h3>生成兑换码</h3>
+
+        <div className="admin-form-row-2">
+          <div>
+            <label>单张面值（积分） *</label>
+            <input type="number" min="1" value={form.points} onChange={e => upd('points', e.target.value)} required />
+          </div>
+          <div>
+            <label>生成数量 * (1~200)</label>
+            <input type="number" min="1" max="200" value={form.count} onChange={e => upd('count', e.target.value)} required />
+          </div>
+        </div>
+
+        <div className="admin-form-row">
+          <label>每张可使用次数</label>
+          <input type="number" min="1" value={form.max_uses} onChange={e => upd('max_uses', e.target.value)} />
+          <div className="admin-hint">默认 1（一码一用）；设为更大值可作为多人共用码</div>
+        </div>
+
+        <div className="admin-form-row">
+          <label>过期时间（可选）</label>
+          <input type="datetime-local" value={form.expires_at} onChange={e => upd('expires_at', e.target.value)} />
+          <div className="admin-hint">留空表示永不过期</div>
+        </div>
+
+        <div className="admin-form-row">
+          <label>备注</label>
+          <input value={form.note} onChange={e => upd('note', e.target.value)} placeholder="例如：双十一活动 / 客服补偿" maxLength={200} />
+        </div>
+
+        {error && <div className="admin-message" style={{ background: '#3a1f1f', borderColor: '#5a2d2d', color: '#eea8a8' }}>{error}</div>}
+
+        <div className="admin-modal-actions">
+          <button type="button" className="admin-btn-ghost" onClick={onCancel} disabled={loading}>取消</button>
+          <button type="submit" className="admin-btn-primary" disabled={loading}>{loading ? '生成中...' : '确认生成'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function RedeemLogsModal({ code, onClose }) {
+  const [logs, setLogs] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    api.adminRedeemCodeLogs(code.id)
+      .then(data => { if (mounted) setLogs(Array.isArray(data) ? data : []); })
+      .catch(e => { if (mounted) setError(e?.message || '加载失败'); });
+    return () => { mounted = false; };
+  }, [code.id]);
+
+  const fmt = (s) => {
+    if (!s) return '-';
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return '-';
+    return d.toLocaleString('zh-CN');
+  };
+
+  return (
+    <div className="admin-modal-overlay" onClick={onClose}>
+      <div className="admin-modal" onClick={e => e.stopPropagation()} style={{ width: 640 }}>
+        <h3>使用记录 — {code.code}</h3>
+        <div className="admin-hint" style={{ marginBottom: '0.75rem' }}>
+          已使用 {code.used_count} / {code.max_uses} 次
+        </div>
+
+        {error && <div className="admin-message" style={{ background: '#3a1f1f', borderColor: '#5a2d2d', color: '#eea8a8' }}>{error}</div>}
+
+        {!logs && !error && <div className="admin-loading">加载中...</div>}
+
+        {logs && (
+          <table className="admin-table">
+            <thead>
+              <tr><th>#</th><th>用户手机号</th><th>到账积分</th><th>兑换时间</th></tr>
+            </thead>
+            <tbody>
+              {logs.map((l, i) => (
+                <tr key={l.id}>
+                  <td>{i + 1}</td>
+                  <td>{l.phone}</td>
+                  <td>+{l.points}</td>
+                  <td>{fmt(l.created_at)}</td>
+                </tr>
+              ))}
+              {logs.length === 0 && <tr><td colSpan={4} className="admin-empty-cell">尚未被使用</td></tr>}
+            </tbody>
+          </table>
+        )}
+
+        <div className="admin-modal-actions">
+          <button type="button" className="admin-btn-primary" onClick={onClose}>关闭</button>
+        </div>
+      </div>
     </div>
   );
 }
