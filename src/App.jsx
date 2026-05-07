@@ -93,7 +93,7 @@ const lightings = [
 const moods = ['自然感', '冷酷感', '忧郁感', '互动感', '沉思感'];
 
 function App({ requireAuth }) {
-  const { user, isAdmin, logout, saveGenerationRecord, refreshUser } = useAuth();
+  const { user, isAdmin, logout, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [images, setImages] = useState([]);
   const [primaryImageId, setPrimaryImageId] = useState(null);
@@ -115,7 +115,10 @@ function App({ requireAuth }) {
     scene: '',
     visualStyle: '',
     gender: '女',
+    imageSize: '2K',
   });
+  /** 由后端根据当前默认图生模型返回；null 表示加载中 */
+  const [imageOutputSizeOptions, setImageOutputSizeOptions] = useState(null);
 
   const [advancedParams, setAdvancedParams] = useState({
     composition: '',
@@ -148,6 +151,45 @@ function App({ requireAuth }) {
       setHeroStyleIndex((prev) => (prev + 1) % heroStyles.length);
     }, 3000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getImageOutputSizes()
+      .then((data) => {
+        if (cancelled) return;
+        const sizes = Array.isArray(data?.sizes) ? data.sizes : [];
+        const defaultSize =
+          typeof data?.defaultSize === 'string' && data.defaultSize.trim()
+            ? data.defaultSize.trim()
+            : (sizes[0]?.value ?? '2K');
+        if (sizes.length === 0) {
+          const fb = ['2K', '3K', '4K'].map((value) => ({ value, label: value }));
+          setImageOutputSizeOptions(fb);
+          setBasicParams((prev) =>
+            fb.some((o) => o.value === prev.imageSize) ? prev : { ...prev, imageSize: '2K' }
+          );
+          return;
+        }
+        setImageOutputSizeOptions(sizes);
+        setBasicParams((prev) => {
+          if (sizes.some((s) => s.value === prev.imageSize)) return prev;
+          return { ...prev, imageSize: defaultSize };
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        const fb = [
+          { value: '2K', label: '2K · 推荐' },
+          { value: '3K', label: '3K · 更清晰' },
+          { value: '4K', label: '4K · 超高细节' },
+        ];
+        setImageOutputSizeOptions(fb);
+        setBasicParams((prev) =>
+          fb.some((o) => o.value === prev.imageSize) ? prev : { ...prev, imageSize: '2K' }
+        );
+      });
+    return () => { cancelled = true; };
   }, []);
 
   const MAX_UPLOAD_FILES = 5;
@@ -244,20 +286,6 @@ function App({ requireAuth }) {
     acceptFiles(files);
   };
 
-  const generatePromptWithLLM = async (scene, style, gender) => {
-    try {
-      const result = await api.generatePrompt(scene, style, gender);
-
-      if (result.success && result.prompt) {
-        return result.prompt;
-      }
-      throw new Error(result.error || 'LLM生成失败');
-    } catch (err) {
-      console.error('LLM调用失败:', err);
-      throw err;
-    }
-  };
-
   const generateImages = async () => {
     if (loading) return;
 
@@ -298,41 +326,26 @@ function App({ requireAuth }) {
       const categoryScenes = basicParams.sceneCategory ? sceneCategories[basicParams.sceneCategory] : [];
       const sceneData = categoryScenes.find(s => s.name === basicParams.scene);
       const style = basicParams.visualStyle || (sceneData ? sceneData.style : '');
-      let finalPrompt = await generatePromptWithLLM(basicParams.scene, style, basicParams.gender);
 
-      // 固定规则：参考图人物优先；勾选「人脸保持」时额外锁住五官造型
-      const ruleImagePrecedence =
-        '（人物以上传参考图为准；若文案在性别、年龄段、人种、体态、发型或服饰等与画面人物不一致，以图片为准。）';
-      const ruleKeepFace = '（保持图中人物的五官不变）';
-      if (keepFace) {
-        finalPrompt = ruleKeepFace + ruleImagePrecedence + finalPrompt;
-      } else {
-        finalPrompt = ruleImagePrecedence + finalPrompt;
-      }
-
-      const generatedImages = await api.generateImages(
-        finalPrompt,
-        imageBase64,
-        imageCount,
-        (url) => {
-          setResults(prev => {
-            const next = [...prev, url];
-            setProgress({ current: next.length, total: imageCount });
-            return next;
-          });
+      const portraitResult = await api.generatePortrait(
+        {
+          scene: basicParams.scene,
+          style,
+          gender: basicParams.gender,
+          keepFace,
+          imageBase64,
+          imageCount,
+          size: basicParams.imageSize,
         },
         controller.signal,
       );
 
+      const generatedImages = portraitResult.urls || [];
+
       if (generatedImages.length > 0) {
+        setResults(generatedImages);
+        setProgress({ current: generatedImages.length, total: imageCount });
         await refreshUser();
-        await saveGenerationRecord(
-          generatedImages,
-          finalPrompt.substring(0, 100),
-          basicParams.scene,
-          imageCount,
-          finalPrompt,
-        );
       } else {
         throw new Error('未获取到生成的图片');
       }
@@ -658,6 +671,29 @@ function App({ requireAuth }) {
                     >
                       <option value="女">女</option>
                       <option value="男">男</option>
+                    </select>
+                  </div>
+
+                  <div className="setting-item">
+                    <label className="setting-label">输出尺寸</label>
+                    <select
+                      className="setting-select"
+                      disabled={!imageOutputSizeOptions || imageOutputSizeOptions.length === 0}
+                      value={
+                        imageOutputSizeOptions === null
+                          ? ''
+                          : (imageOutputSizeOptions.some((o) => o.value === basicParams.imageSize)
+                            ? basicParams.imageSize
+                            : (imageOutputSizeOptions[0]?.value ?? basicParams.imageSize))
+                      }
+                      onChange={(e) => setBasicParams(prev => ({ ...prev, imageSize: e.target.value }))}
+                    >
+                      {imageOutputSizeOptions === null && (
+                        <option value="">加载可选尺寸…</option>
+                      )}
+                      {(imageOutputSizeOptions ?? []).map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
                     </select>
                   </div>
 

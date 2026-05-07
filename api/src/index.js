@@ -13,6 +13,606 @@ const PROMPT_BLACKLIST = [
   '法轮功', '反共', '台独', '港独', '藏独',
 ];
 
+const PORTRAIT_RULE_IMAGE_PRECEDENCE =
+  '（人物以上传参考图为准；若文案在性别与画面人物不一致，以图片为准，并且帮我重新生成该段的合适描述。）';
+const PORTRAIT_RULE_KEEP_FACE = '（保持图中人物的五官不变）';
+
+/** 方舟 Seedream 图片生成 size，参见 https://www.volcengine.com/docs/82379/1541523 — 档位与自定义宽高 */
+const IMAGE_GEN_SIZE_BANDS = new Set(['1K', '2K', '3K', '4K']);
+
+const SIZE_BAND_ORDER = ['1K', '2K', '3K', '4K'];
+
+function orderSizeBands(list) {
+  const set = new Set(list.filter(b => IMAGE_GEN_SIZE_BANDS.has(b)));
+  return SIZE_BAND_ORDER.filter(b => set.has(b));
+}
+
+function labelForOutputSizeBand(value) {
+  switch (value) {
+    case '1K': return '1K · 标清（相对更快）';
+    case '2K': return '2K · 推荐';
+    case '3K': return '3K · 更清晰';
+    case '4K': return '4K · 超高细节';
+    default: return value;
+  }
+}
+
+/** 管理员可在 ai_models.info 配置：{ "output_sizes": ["2K","3K"] } */
+function parseConfiguredOutputSizes(infoField) {
+  if (typeof infoField !== 'string' || !infoField.trim()) return null;
+  try {
+    const obj = JSON.parse(infoField);
+    if (!obj || typeof obj !== 'object') return null;
+    const arr = obj.output_sizes || obj.image_output_sizes || obj.sizes;
+    if (!Array.isArray(arr)) return null;
+    const bands = arr.map((x) => String(x).trim().toUpperCase()).filter((b) => IMAGE_GEN_SIZE_BANDS.has(b));
+    const ordered = orderSizeBands(bands);
+    return ordered.length ? ordered : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 仅服务端根据接入点型号字符串推断档位，不向客户端透出具体型号文案。
+ */
+function inferOutputSizeBandsFromModelIdentifier(modelId) {
+  const id = String(modelId || '').toLowerCase();
+  if (!id) return orderSizeBands(['2K', '3K', '4K']);
+  if (/seedream-5|seedream.?5|seed-5|_-5-|\.5\b/i.test(id)) {
+    return orderSizeBands(['2K', '3K']);
+  }
+  if (/seedream-4|seedream.?4|seed.?4-|\.4\b/i.test(id)) {
+    return orderSizeBands(['1K', '2K', '4K']);
+  }
+  if (/seedream/i.test(id)) {
+    return orderSizeBands(['1K', '2K', '3K', '4K']);
+  }
+  return orderSizeBands(['2K', '3K', '4K']);
+}
+
+function resolveBandsFromImageModelRow(model) {
+  const modelApiId = model?.model_id || 'doubao-seedream-4-0-250828';
+  const fromConfig = model ? parseConfiguredOutputSizes(model.info) : null;
+  if (fromConfig && fromConfig.length) return fromConfig;
+  return inferOutputSizeBandsFromModelIdentifier(modelApiId);
+}
+
+async function handleImageOutputSizes(request, env, corsHeaders) {
+  try {
+    let model = null;
+    try {
+      model = await getDefaultModel(env, 'image');
+    } catch {
+      model = null;
+    }
+    const bands = resolveBandsFromImageModelRow(model);
+    const fallback = bands[0] || '2K';
+    const sizes = bands.map((value) => ({
+      value,
+      label: labelForOutputSizeBand(value),
+    }));
+    return jsonResponse({ sizes, defaultSize: fallback }, 200, corsHeaders);
+  } catch (error) {
+    logError(env, 'output-sizes', error);
+    const fallbackBands = ['2K', '3K', '4K'];
+    return jsonResponse({
+      sizes: fallbackBands.map((value) => ({ value, label: labelForOutputSizeBand(value) })),
+      defaultSize: '2K',
+    }, 200, corsHeaders);
+  }
+}
+
+/** @returns {string} 传入上游的合法 size（档位大写 WxH） */
+function sanitizeImageGenerationSize(raw) {
+  if (typeof raw !== 'string') return '2K';
+  const trimmed = raw.trim().replace(/\s+/g, '');
+  const px = /^(\d{3,4})x(\d{3,4})$/i.exec(trimmed);
+  if (px) {
+    const W = Number(px[1]);
+    const H = Number(px[2]);
+    if (W >= 512 && W <= 8192 && H >= 512 && H <= 8192) {
+      return `${W}x${H}`;
+    }
+  }
+  const band = trimmed.toUpperCase();
+  if (IMAGE_GEN_SIZE_BANDS.has(band)) return band;
+  return '2K';
+}
+
+/** 档位必须在当前默认图生模型的可用档位内；WxH 原样放行 */
+function clampImageSizeToAllowedBands(canonicalSize, allowedBands) {
+  if (!allowedBands || allowedBands.length === 0) return canonicalSize;
+  if (/^\d{3,4}x\d{3,4}$/i.test(canonicalSize)) {
+    return canonicalSize;
+  }
+  const set = new Set(allowedBands);
+  if (set.has(canonicalSize)) return canonicalSize;
+  return allowedBands[0] || '2K';
+}
+
+function buildPortraitFinalPrompt(llmBody, keepFace, imageCount) {
+  const kf = keepFace === true || keepFace === 1 || keepFace === '1';
+  const body = typeof llmBody === 'string' ? llmBody : '';
+  const n =
+    typeof imageCount === 'number' && Number.isFinite(imageCount) && imageCount > 0
+      ? imageCount
+      : 1;
+  const countClause = `（我要生成${n}张图片）`;
+  if (kf) {
+    return countClause + PORTRAIT_RULE_KEEP_FACE + PORTRAIT_RULE_IMAGE_PRECEDENCE + body;
+  }
+  return countClause + PORTRAIT_RULE_IMAGE_PRECEDENCE + body;
+}
+
+/** 递归收集 JSON 响应中的图片 URL（非流式图生接口） */
+function collectHttpsUrlsUnique(root) {
+  const seen = new Set();
+  const out = [];
+  const visit = (node, depth) => {
+    if (depth > 24 || node == null) return;
+    if (typeof node === 'string') {
+      if (/^https?:\/\//i.test(node) && !seen.has(node)) {
+        seen.add(node);
+        out.push(node);
+      }
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const x of node) visit(x, depth + 1);
+      return;
+    }
+    if (typeof node === 'object') {
+      if (typeof node.url === 'string') visit(node.url, depth + 1);
+      for (const k of Object.keys(node)) {
+        if (k !== 'url') visit(node[k], depth + 1);
+      }
+    }
+  };
+  visit(root, 0);
+  return out;
+}
+
+/** 上游图生 body：完整 JSON，或仍为 SSE text/event-stream 文本 */
+function extractUrlsFromUpstreamImageBody(rawBody) {
+  let parsedJson = null;
+  const accumulated = [];
+  const seen = new Set();
+  const addAll = (from) => {
+    for (const u of collectHttpsUrlsUnique(from)) {
+      if (!seen.has(u)) {
+        seen.add(u);
+        accumulated.push(u);
+      }
+    }
+  };
+
+  if (typeof rawBody !== 'string') {
+    return { urls: [], parsedJson };
+  }
+  const trimmed = rawBody.trim();
+  if (!trimmed) {
+    return { urls: [], parsedJson };
+  }
+
+  try {
+    parsedJson = JSON.parse(trimmed);
+    addAll(parsedJson);
+    if (accumulated.length > 0) return { urls: accumulated, parsedJson };
+  } catch {
+    parsedJson = null;
+  }
+
+  for (const line of rawBody.split('\n')) {
+    const t = line.trim().replace(/\r$/, '');
+    if (!t.startsWith('data:')) continue;
+    const ds = t.substring(5).trim();
+    if (!ds || ds === '[DONE]') continue;
+    try {
+      const evt = JSON.parse(ds);
+      addAll(evt);
+    } catch {}
+  }
+
+  return { urls: accumulated, parsedJson };
+}
+
+/** 多图组图：方舟常在 stream:true 时按 SSE 逐张推送；需在 Worker 内读完整流再汇总 URL */
+async function collectImageUrlsFromArkSseStream(body) {
+  if (!body || typeof body.getReader !== 'function') return [];
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let rawFull = '';
+  const accumulated = [];
+  const seen = new Set();
+  const addAll = (from) => {
+    for (const u of collectHttpsUrlsUnique(from)) {
+      if (!seen.has(u)) {
+        seen.add(u);
+        accumulated.push(u);
+      }
+    }
+  };
+  const handleLine = (line) => {
+    const t = line.trim().replace(/\r$/, '');
+    if (!t.startsWith('data:')) return;
+    const ds = t.substring(5).trim();
+    if (!ds || ds === '[DONE]') return;
+    try {
+      addAll(JSON.parse(ds));
+    } catch {}
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      rawFull += chunk;
+      buffer += chunk;
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) handleLine(line);
+    }
+    for (const line of buffer.split('\n')) handleLine(line);
+    if (accumulated.length === 0 && rawFull.trim()) {
+      const extra = extractUrlsFromUpstreamImageBody(rawFull);
+      for (const u of extra.urls) {
+        if (!seen.has(u)) {
+          seen.add(u);
+          accumulated.push(u);
+        }
+      }
+    }
+  } catch {
+    try { reader.releaseLock(); } catch {}
+  }
+  return accumulated;
+}
+
+async function invokePortraitLlmPrompt(env, { userId, scene, style, gender }, signal) {
+  const arkApiKey = env.ARK_API_KEY || env.DOUBAO_API_KEY;
+  if (!arkApiKey) {
+    return { ok: false, error: '服务不可用', status: 500 };
+  }
+  let model = null;
+  try {
+    model = await getDefaultModel(env, 'text');
+  } catch {}
+  const arkApiUrl = model?.api_url || env.ARK_API_URL || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
+  const arkModel = model?.model_id || env.ARK_MODEL || 'doubao-seed-2-0-mini-260215';
+
+  const inputKeyword = `[关键词：人物性别为${gender}，场景为：${scene}，风格为：${style || '未指定'}][我需要你帮我生成一段顶级的写真指令描述，包括但不限于风格，场景，人物（需与上述性别一致），动作，镜头，光学，表情等。待会我要用这段描述给图片大模型生成图片]`;
+
+  const startedAt = Date.now();
+  try {
+    const response = await fetch(arkApiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${arkApiKey}`
+      },
+      body: JSON.stringify({
+        model: arkModel,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a professional photography prompt expert. Generate detailed and creative photography prompts.'
+          },
+          {
+            role: 'user',
+            content: inputKeyword
+          }
+        ]
+      }),
+      signal
+    });
+
+    if (!response.ok) {
+      await logUsage(env, {
+        userId, model, modelType: 'text', units: 1,
+        pointsCost: 0, success: false,
+        errorMsg: `upstream ${response.status}`,
+        durationMs: Date.now() - startedAt,
+      });
+      return { ok: false, error: '文案生成服务异常', status: 502 };
+    }
+
+    const data = await response.json();
+    const generatedPrompt = data?.choices?.[0]?.message?.content;
+
+    if (!generatedPrompt || typeof generatedPrompt !== 'string') {
+      await logUsage(env, {
+        userId, model, modelType: 'text', units: 1,
+        pointsCost: 0, success: false,
+        errorMsg: 'empty response',
+        durationMs: Date.now() - startedAt,
+      });
+      return { ok: false, error: '文案生成失败', status: 502 };
+    }
+
+    await logUsage(env, {
+      userId, model, modelType: 'text', units: 1,
+      pointsCost: model?.price_per_unit || 0,
+      success: true,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return { ok: true, text: generatedPrompt.trim() };
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      return { ok: false, error: '已取消', status: 408, abort: true };
+    }
+    logError(env, 'portrait-llm', error);
+    await logUsage(env, {
+      userId, model, modelType: 'text', units: 1,
+      pointsCost: 0, success: false,
+      errorMsg: error?.message || 'unknown',
+      durationMs: Date.now() - startedAt,
+    });
+    return { ok: false, error: maskError(env, error), status: 500 };
+  }
+}
+
+async function persistPortraitGeneration(env, userId, imageUrls, sceneName, preview, fullPrompt) {
+  const safePrompt = typeof preview === 'string' ? preview.slice(0, 4000) : '';
+  const safePromptFull = typeof fullPrompt === 'string' ? fullPrompt.slice(0, 8000) : '';
+  const safeScene = typeof sceneName === 'string' ? sceneName.slice(0, 200) : '';
+  const n = Array.isArray(imageUrls) ? imageUrls.length : 0;
+  if (n === 0) return null;
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const result = await env.DB.prepare(
+    'INSERT INTO generations (user_id, images, prompt, prompt_full, scene, image_count, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind(userId, JSON.stringify(imageUrls), safePrompt, safePromptFull, safeScene, n, expiresAt).run();
+  return result.meta.last_row_id;
+}
+
+async function handlePortraitPipeline(request, env, corsHeaders) {
+  const token = getUserId(request);
+  const userId = token ? await verifyTokenAndGetUserId(token, env) : null;
+  if (!userId) {
+    return jsonResponse({ error: '未登录' }, 401, corsHeaders);
+  }
+
+  const apiKey = env.DOUBAO_API_KEY;
+  if (!apiKey) {
+    return jsonResponse({ error: '服务不可用' }, 500, corsHeaders);
+  }
+
+  const ip = getClientIp(request);
+  const llmRate = await checkRateLimit(env, `llm:${userId}`, 20, 60);
+  if (!llmRate.allowed) {
+    return jsonResponse({ error: '请求过于频繁，请稍后再试' }, 429, corsHeaders);
+  }
+  const imgRate = await checkRateLimit(env, `img:${userId}`, 10, 60);
+  if (!imgRate.allowed) {
+    return jsonResponse({ error: '请求过于频繁，请稍后再试' }, 429, corsHeaders);
+  }
+  const ipRate = await checkRateLimit(env, `img-ip:${ip}`, 30, 60);
+  if (!ipRate.allowed) {
+    return jsonResponse({ error: '请求过于频繁，请稍后再试' }, 429, corsHeaders);
+  }
+
+  const body = await readJsonBody(request);
+  if (!body || typeof body !== 'object') {
+    return jsonResponse({ error: '请求参数无效' }, 400, corsHeaders);
+  }
+
+  const { scene, style, gender, keepFace, imageBase64, imageCount, size: rawSize } = body;
+
+  if (!isNonEmptyString(scene, 200)) {
+    return jsonResponse({ error: '场景参数无效' }, 400, corsHeaders);
+  }
+  if (style !== undefined && style !== null && (typeof style !== 'string' || style.length > 200)) {
+    return jsonResponse({ error: '风格参数无效' }, 400, corsHeaders);
+  }
+  const genderLabel = gender === '男' || gender === '女' ? gender : '女';
+
+  if (containsBlockedKeyword(scene) || containsBlockedKeyword(style || '')) {
+    return jsonResponse({ error: '场景或风格包含敏感内容' }, 400, corsHeaders);
+  }
+  if (typeof imageBase64 !== 'string' || imageBase64.length === 0) {
+    return jsonResponse({ error: '图片参数无效' }, 400, corsHeaders);
+  }
+  if (imageBase64.length > 6 * 1024 * 1024) {
+    return jsonResponse({ error: '图片过大，请压缩后重试' }, 413, corsHeaders);
+  }
+  if (!isImageDataUrl(imageBase64)) {
+    return jsonResponse({ error: '图片格式无效，仅支持 JPG/PNG/WEBP' }, 400, corsHeaders);
+  }
+  const safeImageCount = parsePositiveInt(imageCount, 10);
+  if (!safeImageCount) {
+    return jsonResponse({ error: '生成数量需为 1~10' }, 400, corsHeaders);
+  }
+  const keepFaceBool = keepFace === true || keepFace === 1 || keepFace === '1';
+
+  const model = await getDefaultModel(env, 'image');
+  const modelApiId = model?.model_id || 'doubao-seedream-4-0-250828';
+  const outputBandsForPortrait = resolveBandsFromImageModelRow(model);
+  const safeSize = clampImageSizeToAllowedBands(sanitizeImageGenerationSize(rawSize), outputBandsForPortrait);
+  const modelApiUrl = model?.api_url || 'https://ark.cn-beijing.volces.com/api/v3/images/generations';
+  const pointsPerImage = model?.price_per_unit
+    || parsePositiveInt(env.POINTS_PER_IMAGE, 10000)
+    || POINTS_PER_IMAGE_DEFAULT;
+  const totalCost = pointsPerImage * safeImageCount;
+
+  if (model?.quota_daily && model.quota_daily > 0) {
+    const used = await getTodayUsageCount(env, model.id);
+    if (used + safeImageCount > model.quota_daily) {
+      return jsonResponse({ error: '今日模型调用额度已满' }, 429, corsHeaders);
+    }
+  }
+
+  const deduct = await deductPointsAtomic(env, userId, totalCost, `生成${safeImageCount}张图片`);
+  if (!deduct.ok) {
+    const status = deduct.reason === 'insufficient' ? 402 : 500;
+    return jsonResponse({ error: deduct.message }, status, corsHeaders);
+  }
+
+  const signal = request.signal;
+  const startedAt = Date.now();
+
+  try {
+    const llm = await invokePortraitLlmPrompt(
+      env,
+      {
+        userId,
+        scene,
+        style: typeof style === 'string' ? style : '',
+        gender: genderLabel
+      },
+      signal
+    );
+    if (llm.abort) {
+      await refundPoints(env, userId, totalCost, '用户取消退款');
+      return jsonResponse({ error: '已取消' }, 408, corsHeaders);
+    }
+    if (!llm.ok || !llm.text) {
+      await refundPoints(env, userId, totalCost, '文案生成失败退款');
+      await logUsage(env, {
+        userId, model, modelType: 'image', units: safeImageCount,
+        pointsCost: 0, success: false,
+        errorMsg: llm.error || 'llm failed',
+        durationMs: Date.now() - startedAt,
+      });
+      return jsonResponse({ error: llm.error || '文案生成失败' }, llm.status || 502, corsHeaders);
+    }
+
+    let finalPrompt = buildPortraitFinalPrompt(llm.text, keepFaceBool, safeImageCount);
+    if (!isNonEmptyString(finalPrompt, 4000)) {
+      await refundPoints(env, userId, totalCost, '文案为空退款');
+      return jsonResponse({ error: '文案生成异常' }, 502, corsHeaders);
+    }
+
+    const blocked = containsBlockedKeyword(finalPrompt);
+    if (blocked) {
+      await refundPoints(env, userId, totalCost, '提示词校验失败退款');
+      await logUsage(env, {
+        userId, model, modelType: 'image', units: safeImageCount,
+        pointsCost: 0, success: false,
+        errorMsg: 'blocked composed prompt',
+        durationMs: Date.now() - startedAt,
+      });
+      return jsonResponse({ error: '生成内容不合规，已拒绝' }, 400, corsHeaders);
+    }
+
+    /** 组图多张时上游多在 SSE 中逐条返回 URL；stream:false 的常见 JSON 往往只有一张 */
+    const useImageStream = safeImageCount > 1;
+    const requestData = {
+      model: modelApiId,
+      prompt: finalPrompt,
+      image: [imageBase64],
+      sequential_image_generation: 'auto',
+      sequential_image_generation_options: {
+        max_images: 10
+      },
+      response_format: 'url',
+      size: safeSize,
+      stream: useImageStream,
+      watermark: false
+    };
+
+    const imgResp = await fetch(modelApiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestData),
+      signal
+    });
+
+    if (!imgResp.ok) {
+      await refundPoints(env, userId, totalCost, '图片生成失败退款');
+      logError(env, 'portrait-pipeline-img', new Error(`upstream ${imgResp.status}`));
+      await logUsage(env, {
+        userId, model, modelType: 'image', units: safeImageCount,
+        pointsCost: 0, success: false,
+        errorMsg: `upstream ${imgResp.status}`,
+        durationMs: Date.now() - startedAt,
+      });
+      return jsonResponse({ error: '图片生成服务异常' }, 502, corsHeaders);
+    }
+
+    let urls;
+    let parsedJson = null;
+    if (useImageStream && imgResp.body) {
+      urls = await collectImageUrlsFromArkSseStream(imgResp.body);
+    } else {
+      const rawBody = await imgResp.text();
+      const extracted = extractUrlsFromUpstreamImageBody(rawBody);
+      urls = extracted.urls;
+      parsedJson = extracted.parsedJson;
+    }
+
+    if (urls.length === 0 && parsedJson && typeof parsedJson === 'object' && parsedJson.error) {
+      await refundPoints(env, userId, totalCost, '图片生成失败退款');
+      await logUsage(env, {
+        userId, model, modelType: 'image', units: safeImageCount,
+        pointsCost: 0, success: false,
+        errorMsg: String(parsedJson.error),
+        durationMs: Date.now() - startedAt,
+      });
+      return jsonResponse({ error: '图片生成服务异常' }, 502, corsHeaders);
+    }
+
+    if (urls.length === 0) {
+      await refundPoints(env, userId, totalCost, '未返回图片退款');
+      await logUsage(env, {
+        userId, model, modelType: 'image', units: safeImageCount,
+        pointsCost: 0, success: false,
+        errorMsg: 'no urls in upstream json',
+        durationMs: Date.now() - startedAt,
+      });
+      return jsonResponse({ error: '图片生成未完成，请稍后重试' }, 502, corsHeaders);
+    }
+
+    const shortfall = Math.max(0, safeImageCount - urls.length);
+    if (shortfall > 0) {
+      const refundAmt = shortfall * pointsPerImage;
+      await refundPoints(env, userId, refundAmt, `仅生成${urls.length}张，差额退款`);
+    }
+
+    await logUsage(env, {
+      userId, model, modelType: 'image', units: urls.length,
+      pointsCost: pointsPerImage * urls.length,
+      success: true,
+      durationMs: Date.now() - startedAt,
+    });
+
+    const recordId = await persistPortraitGeneration(
+      env,
+      userId,
+      urls,
+      scene,
+      finalPrompt.slice(0, 100),
+      finalPrompt
+    );
+
+    return jsonResponse({
+      success: true,
+      urls,
+      recordId,
+      requested: safeImageCount,
+      generated: urls.length
+    }, 200, corsHeaders);
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      await refundPoints(env, userId, totalCost, '用户取消退款');
+      return jsonResponse({ error: '已取消' }, 408, corsHeaders);
+    }
+    await refundPoints(env, userId, totalCost, '生成异常退款');
+    logError(env, 'portrait-pipeline', error);
+    await logUsage(env, {
+      userId, model, modelType: 'image', units: safeImageCount,
+      pointsCost: 0, success: false,
+      errorMsg: error?.message || 'unknown',
+      durationMs: Date.now() - startedAt,
+    });
+    return jsonResponse({ error: maskError(env, error) }, 500, corsHeaders);
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -31,12 +631,23 @@ export default {
       return jsonResponse({ error: 'CORS origin not allowed' }, 403, corsHeaders);
     }
 
+    if (path === '/api/images/output-sizes' && method === 'GET') {
+      return handleImageOutputSizes(request, env, corsHeaders);
+    }
+
+    if (path === '/api/images/generate-portrait' && method === 'POST') {
+      return await handlePortraitPipeline(request, env, corsHeaders);
+    }
+
     if (path === '/api/images/generate' && method === 'POST') {
       return await handleImageGeneration(request, env, corsHeaders);
     }
 
     if (path === '/api/llm/generate-prompt' && method === 'POST') {
-      return await handleGeneratePrompt(request, env, corsHeaders);
+      return jsonResponse({
+        error: '该接口已在服务端合并，请使用 POST /api/images/generate-portrait',
+        code: 'USE_GENERATE_PORTRAIT'
+      }, 410, corsHeaders);
     }
 
     try {
@@ -272,7 +883,7 @@ async function handleImageGeneration(request, env, corsHeaders) {
   if (!body || typeof body !== 'object') {
     return jsonResponse({ error: '请求参数无效' }, 400, corsHeaders);
   }
-  const { prompt, imageBase64, imageCount } = body;
+  const { prompt, imageBase64, imageCount, size: rawImgSize } = body;
 
   if (!isNonEmptyString(prompt, 4000)) {
     return jsonResponse({ error: '提示词长度非法' }, 400, corsHeaders);
@@ -298,6 +909,8 @@ async function handleImageGeneration(request, env, corsHeaders) {
 
   // 从数据库读取默认图片模型；失败则回退到硬编码
   const model = await getDefaultModel(env, 'image');
+  const outputBandsForImage = resolveBandsFromImageModelRow(model);
+  const safeSize = clampImageSizeToAllowedBands(sanitizeImageGenerationSize(rawImgSize), outputBandsForImage);
   const modelApiId = model?.model_id || 'doubao-seedream-4-0-250828';
   const modelApiUrl = model?.api_url || 'https://ark.cn-beijing.volces.com/api/v3/images/generations';
   const pointsPerImage = model?.price_per_unit
@@ -329,10 +942,10 @@ async function handleImageGeneration(request, env, corsHeaders) {
       image: [imageBase64],
       sequential_image_generation: 'auto',
       sequential_image_generation_options: {
-        max_images: safeImageCount
+        max_images: 10
       },
       response_format: 'url',
-      size: '2K',
+      size: safeSize,
       stream: true,
       watermark: false
     };
@@ -396,116 +1009,6 @@ async function getTodayUsageCount(env, modelId) {
   } catch (error) {
     logError(env, 'getTodayUsageCount', error);
     return 0;
-  }
-}
-
-async function handleGeneratePrompt(request, env, corsHeaders) {
-  const token = getUserId(request);
-  const userId = token ? await verifyTokenAndGetUserId(token, env) : null;
-  if (!userId) {
-    return jsonResponse({ error: '未登录' }, 401, corsHeaders);
-  }
-
-  // 每用户每分钟 20 次
-  const rate = await checkRateLimit(env, `llm:${userId}`, 20, 60);
-  if (!rate.allowed) {
-    return jsonResponse({ error: '请求过于频繁，请稍后再试' }, 429, corsHeaders);
-  }
-
-  const body = await readJsonBody(request);
-  if (!body || typeof body !== 'object') {
-    return jsonResponse({ error: '请求参数无效' }, 400, corsHeaders);
-  }
-  const { scene, style, gender } = body;
-  if (!isNonEmptyString(scene, 200)) {
-    return jsonResponse({ error: '场景参数无效' }, 400, corsHeaders);
-  }
-  if (style !== undefined && style !== null && (typeof style !== 'string' || style.length > 200)) {
-    return jsonResponse({ error: '风格参数无效' }, 400, corsHeaders);
-  }
-  const genderLabel = gender === '男' || gender === '女' ? gender : '女';
-  if (containsBlockedKeyword(scene) || containsBlockedKeyword(style || '')) {
-    return jsonResponse({ error: '场景或风格包含敏感内容' }, 400, corsHeaders);
-  }
-
-  const arkApiKey = env.ARK_API_KEY || env.DOUBAO_API_KEY;
-  if (!arkApiKey) {
-    return jsonResponse({ error: '服务不可用' }, 500, corsHeaders);
-  }
-
-  // 动态读取默认文本模型
-  const model = await getDefaultModel(env, 'text');
-  const arkApiUrl = model?.api_url || env.ARK_API_URL || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
-  const arkModel = model?.model_id || env.ARK_MODEL || 'doubao-seed-2-0-mini-260215';
-
-  const inputKeyword = `[关键词：人物性别为${genderLabel}，场景为：${scene}，风格为：${style || '未指定'}][我需要你帮我生成一段顶级的写真指令描述，包括但不限于风格，场景，人物（需与上述性别一致），动作，镜头，光学，表情等。待会我要用这段描述给图片大模型生成图片]`;
-
-  const startedAt = Date.now();
-  try {
-    const response = await fetch(arkApiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${arkApiKey}`
-      },
-      body: JSON.stringify({
-        model: arkModel,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a professional photography prompt expert. Generate detailed and creative photography prompts.'
-          },
-          {
-            role: 'user',
-            content: inputKeyword
-          }
-        ]
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      logError(env, 'llm-upstream', new Error(`status ${response.status}: ${errorText.slice(0, 300)}`));
-      await logUsage(env, {
-        userId, model, modelType: 'text', units: 1,
-        pointsCost: 0, success: false,
-        errorMsg: `upstream ${response.status}`,
-        durationMs: Date.now() - startedAt,
-      });
-      return jsonResponse({ error: '文案生成服务异常' }, 502, corsHeaders);
-    }
-
-    const data = await response.json();
-    const generatedPrompt = data?.choices?.[0]?.message?.content;
-
-    if (!generatedPrompt) {
-      await logUsage(env, {
-        userId, model, modelType: 'text', units: 1,
-        pointsCost: 0, success: false,
-        errorMsg: 'empty response',
-        durationMs: Date.now() - startedAt,
-      });
-      return jsonResponse({ error: '文案生成失败' }, 502, corsHeaders);
-    }
-
-    // LLM 按 1k token 计价，简单起见当前按次记录（单次视为 1 个 unit）
-    await logUsage(env, {
-      userId, model, modelType: 'text', units: 1,
-      pointsCost: model?.price_per_unit || 0,
-      success: true,
-      durationMs: Date.now() - startedAt,
-    });
-
-    return jsonResponse({ success: true, prompt: generatedPrompt }, 200, corsHeaders);
-  } catch (error) {
-    logError(env, 'llm-generate', error);
-    await logUsage(env, {
-      userId, model, modelType: 'text', units: 1,
-      pointsCost: 0, success: false,
-      errorMsg: error?.message || 'unknown',
-      durationMs: Date.now() - startedAt,
-    });
-    return jsonResponse({ error: maskError(env, error) }, 500, corsHeaders);
   }
 }
 

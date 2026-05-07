@@ -3,6 +3,41 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 const TOKEN_KEY = 'synthia_token';
 const REFRESH_TOKEN_KEY = 'synthia_refresh_token';
 
+/** 方舟/兼容图片流式 SSE：单条 payload 常见为 { url } 或 { data: [{ url }, ...] }，也可能嵌套在 response/result */
+function extractImageUrlsFromSsePayload(data, depth = 0) {
+  if (!data || typeof data !== 'object' || depth > 4) return [];
+  const urls = [];
+  const push = (u) => {
+    if (typeof u === 'string' && /^https?:\/\//i.test(u)) urls.push(u);
+  };
+  push(data.url);
+  if (Array.isArray(data.urls)) {
+    for (const u of data.urls) push(u);
+  }
+  if (Array.isArray(data.data)) {
+    for (const row of data.data) {
+      if (row && typeof row === 'object') push(row.url);
+    }
+  }
+  if (Array.isArray(data.images)) {
+    for (const row of data.images) {
+      if (typeof row === 'string') push(row);
+      else if (row && typeof row === 'object') push(row.url);
+    }
+  }
+  const c0 = data.choices?.[0];
+  if (c0?.delta && typeof c0.delta.url === 'string') push(c0.delta.url);
+
+  for (const key of ['response', 'result', 'output']) {
+    const inner = data[key];
+    if (inner && typeof inner === 'object') {
+      urls.push(...extractImageUrlsFromSsePayload(inner, depth + 1));
+    }
+  }
+
+  return urls;
+}
+
 class ApiService {
   constructor() {
     this.baseURL = API_BASE_URL;
@@ -185,10 +220,11 @@ class ApiService {
     });
   }
 
-  async generatePrompt(scene, style, gender) {
-    return await this.request('/api/llm/generate-prompt', {
+  async generatePortrait(payload, signal) {
+    return await this.request('/api/images/generate-portrait', {
       method: 'POST',
-      body: JSON.stringify({ scene, style, gender }),
+      body: JSON.stringify(payload),
+      signal,
     });
   }
 
@@ -297,6 +333,16 @@ class ApiService {
     return await this.request(`/api/admin/stats/redeem?days=${d}`);
   }
 
+  async getImageOutputSizes() {
+    const url = `${this.baseURL}/api/images/output-sizes`;
+    const response = await fetch(url, { method: 'GET' });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || '获取输出尺寸失败');
+    }
+    return response.json();
+  }
+
   async generateImages(prompt, imageBase64, imageCount, onImageGenerated, signal) {
     const url = `${this.baseURL}/api/images/generate`;
     const token = this.getToken();
@@ -319,7 +365,28 @@ class ApiService {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     const generatedImages = [];
+    const seenUrls = new Set();
     let buffer = '';
+
+    const handleSseLine = (line) => {
+      const trimmedLine = line.trim();
+      if (!trimmedLine.startsWith('data:')) return;
+      const dataStr = trimmedLine.substring(5).trim();
+      if (dataStr === '[DONE]' || !dataStr) return;
+      let data;
+      try {
+        data = JSON.parse(dataStr);
+      } catch {
+        return;
+      }
+      for (const u of extractImageUrlsFromSsePayload(data)) {
+        if (!seenUrls.has(u)) {
+          seenUrls.add(u);
+          generatedImages.push(u);
+          if (onImageGenerated) onImageGenerated(u);
+        }
+      }
+    };
 
     try {
       while (true) {
@@ -331,18 +398,12 @@ class ApiService {
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (trimmedLine.startsWith('data:')) {
-            const dataStr = trimmedLine.substring(5).trim();
-            if (dataStr === '[DONE]' || !dataStr) continue;
-            try {
-              const data = JSON.parse(dataStr);
-              if (data && data.url) {
-                generatedImages.push(data.url);
-                if (onImageGenerated) onImageGenerated(data.url);
-              }
-            } catch {}
-          }
+          handleSseLine(line.replace(/\r$/, ''));
+        }
+      }
+      if (buffer.trim()) {
+        for (const line of buffer.split('\n')) {
+          handleSseLine(line.replace(/\r$/, ''));
         }
       }
     } catch (err) {
