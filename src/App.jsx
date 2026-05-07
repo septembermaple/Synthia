@@ -113,7 +113,8 @@ function App({ requireAuth }) {
   const [basicParams, setBasicParams] = useState({
     sceneCategory: '',
     scene: '',
-    visualStyle: ''
+    visualStyle: '',
+    gender: '女',
   });
 
   const [advancedParams, setAdvancedParams] = useState({
@@ -121,9 +122,6 @@ function App({ requireAuth }) {
     lighting: '',
     mood: ''
   });
-
-  const [customPrompt, setCustomPrompt] = useState('');
-  const [useCustomPrompt, setUseCustomPrompt] = useState(false);
 
   const prompts = [
     { name: '专业写真', description: '光线柔和，色彩丰富', category: '复古', image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&h=800&fit=crop' },
@@ -246,20 +244,14 @@ function App({ requireAuth }) {
     acceptFiles(files);
   };
 
-  const generatePromptWithLLM = async (scene, style) => {
-    console.log('=== LLM调用入参 ===');
-    console.log(`场景: ${scene}, 风格: ${style}`);
-    
+  const generatePromptWithLLM = async (scene, style, gender) => {
     try {
-      const result = await api.generatePrompt(scene, style);
-      
+      const result = await api.generatePrompt(scene, style, gender);
+
       if (result.success && result.prompt) {
-        console.log('=== LLM生成结果 ===');
-        console.log(result.prompt);
         return result.prompt;
-      } else {
-        throw new Error(result.error || 'LLM生成失败');
       }
+      throw new Error(result.error || 'LLM生成失败');
     } catch (err) {
       console.error('LLM调用失败:', err);
       throw err;
@@ -279,20 +271,9 @@ function App({ requireAuth }) {
       return;
     }
 
-    if (!useCustomPrompt && !basicParams.scene) {
-      setError('请选择场景或填写自定义提示词');
+    if (!basicParams.scene) {
+      setError('请选择场景主题');
       return;
-    }
-    if (useCustomPrompt) {
-      const trimmed = customPrompt.trim();
-      if (trimmed.length < 4) {
-        setError('自定义提示词太短，请至少输入 4 个字符');
-        return;
-      }
-      if (trimmed.length > 2000) {
-        setError('自定义提示词过长，请控制在 2000 字以内');
-        return;
-      }
     }
 
     const pointsRequired = imageCount * 10;
@@ -314,18 +295,19 @@ function App({ requireAuth }) {
     try {
       const imageBase64 = await compressImageToDataUrl(primary.file);
 
-      let finalPrompt;
-      if (useCustomPrompt) {
-        finalPrompt = customPrompt.trim();
-      } else {
-        const categoryScenes = basicParams.sceneCategory ? sceneCategories[basicParams.sceneCategory] : [];
-        const sceneData = categoryScenes.find(s => s.name === basicParams.scene);
-        const style = basicParams.visualStyle || (sceneData ? sceneData.style : '');
-        finalPrompt = await generatePromptWithLLM(basicParams.scene, style);
-      }
+      const categoryScenes = basicParams.sceneCategory ? sceneCategories[basicParams.sceneCategory] : [];
+      const sceneData = categoryScenes.find(s => s.name === basicParams.scene);
+      const style = basicParams.visualStyle || (sceneData ? sceneData.style : '');
+      let finalPrompt = await generatePromptWithLLM(basicParams.scene, style, basicParams.gender);
 
+      // 固定规则：参考图人物优先；勾选「人脸保持」时额外锁住五官造型
+      const ruleImagePrecedence =
+        '（人物以上传参考图为准；若文案在性别、年龄段、人种、体态、发型或服饰等与画面人物不一致，以图片为准。）';
+      const ruleKeepFace = '（保持图中人物的五官不变）';
       if (keepFace) {
-        finalPrompt = '（保持图一人物的五官不变）' + finalPrompt;
+        finalPrompt = ruleKeepFace + ruleImagePrecedence + finalPrompt;
+      } else {
+        finalPrompt = ruleImagePrecedence + finalPrompt;
       }
 
       const generatedImages = await api.generateImages(
@@ -344,7 +326,13 @@ function App({ requireAuth }) {
 
       if (generatedImages.length > 0) {
         await refreshUser();
-        await saveGenerationRecord(generatedImages, finalPrompt.substring(0, 100), basicParams.scene, imageCount);
+        await saveGenerationRecord(
+          generatedImages,
+          finalPrompt.substring(0, 100),
+          basicParams.scene,
+          imageCount,
+          finalPrompt,
+        );
       } else {
         throw new Error('未获取到生成的图片');
       }
@@ -634,7 +622,7 @@ function App({ requireAuth }) {
                             ...prev, 
                             sceneCategory: '',
                             scene: '',
-                            visualStyle: ''
+                            visualStyle: '',
                           }));
                           return;
                         }
@@ -662,13 +650,25 @@ function App({ requireAuth }) {
                   </div>
 
                   <div className="setting-item">
+                    <label className="setting-label">性别</label>
+                    <select
+                      className="setting-select"
+                      value={basicParams.gender}
+                      onChange={(e) => setBasicParams(prev => ({ ...prev, gender: e.target.value }))}
+                    >
+                      <option value="女">女</option>
+                      <option value="男">男</option>
+                    </select>
+                  </div>
+
+                  <div className="setting-item">
                     <label className="setting-label">生成数量</label>
                     <select
                       className="setting-select"
                       value={imageCount}
                       onChange={(e) => setImageCount(Number(e.target.value))}
                     >
-                      {[1, 2, 3, 4].map(count => (
+                      {Array.from({ length: 10 }, (_, i) => i + 1).map(count => (
                         <option key={count} value={count}>{count} 张</option>
                       ))}
                     </select>
@@ -686,36 +686,6 @@ function App({ requireAuth }) {
                     </label>
                   </div>
 
-                  <div className="setting-item">
-                    <label className="setting-label">自定义提示词</label>
-                    <label className="checkbox-option">
-                      <input
-                        type="checkbox"
-                        checked={useCustomPrompt}
-                        onChange={(e) => setUseCustomPrompt(e.target.checked)}
-                      />
-                      <span>使用自己写的 prompt（跳过场景模板与 LLM）</span>
-                    </label>
-                    {useCustomPrompt && (
-                      <textarea
-                        value={customPrompt}
-                        onChange={(e) => setCustomPrompt(e.target.value)}
-                        placeholder="例如：黄昏海边，少女披肩长发，逆光剪影，电影感色调，胶片颗粒"
-                        rows={4}
-                        maxLength={2000}
-                        style={{
-                          width: '100%',
-                          marginTop: '0.5rem',
-                          padding: '0.6rem 0.8rem',
-                          background: 'rgba(255,255,255,0.06)',
-                          border: '1px solid rgba(255,255,255,0.15)',
-                          borderRadius: 8,
-                          color: 'inherit',
-                          resize: 'vertical',
-                        }}
-                      />
-                    )}
-                  </div>
                 </div>
               )}
 

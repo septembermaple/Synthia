@@ -545,7 +545,6 @@ function Dashboard() {
                   <div key={record.id} className="generation-record">
                     <div className="record-header">
                       <div className="record-info">
-                        <span className="record-prompt">{record.prompt}</span>
                         {record.scene && <span className="record-scene">{record.scene}</span>}
                         <span className="record-count">{record.image_count || record.imageCount}张图片</span>
                       </div>

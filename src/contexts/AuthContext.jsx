@@ -145,9 +145,9 @@ export const AuthProvider = ({ children }) => {
     return await api.getTransactions(limit);
   };
 
-  const saveGenerationRecord = async (images, prompt, scene, imageCount) => {
+  const saveGenerationRecord = async (images, promptPreview, scene, imageCount, promptFull) => {
     if (!user) return;
-    return await api.saveGeneration(images, prompt, scene, imageCount);
+    return await api.saveGeneration(images, promptPreview, scene, imageCount, promptFull);
   };
 
   const getGenerationRecords = async () => {

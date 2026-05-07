@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS generations (
   user_id INTEGER NOT NULL,
   images TEXT NOT NULL,
   prompt TEXT NOT NULL,
+  prompt_full TEXT NOT NULL DEFAULT '',
   scene TEXT DEFAULT '',
   image_count INTEGER NOT NULL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,

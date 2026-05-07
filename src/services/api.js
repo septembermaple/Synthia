@@ -172,10 +172,10 @@ class ApiService {
     return await this.request('/api/generations');
   }
 
-  async saveGeneration(images, prompt, scene, imageCount) {
+  async saveGeneration(images, prompt, scene, imageCount, promptFull) {
     return await this.request('/api/generations', {
       method: 'POST',
-      body: JSON.stringify({ images, prompt, scene, imageCount }),
+      body: JSON.stringify({ images, prompt, scene, imageCount, promptFull }),
     });
   }
 
@@ -185,10 +185,10 @@ class ApiService {
     });
   }
 
-  async generatePrompt(scene, style) {
+  async generatePrompt(scene, style, gender) {
     return await this.request('/api/llm/generate-prompt', {
       method: 'POST',
-      body: JSON.stringify({ scene, style }),
+      body: JSON.stringify({ scene, style, gender }),
     });
   }
 
@@ -236,6 +236,11 @@ class ApiService {
 
   async adminMe() {
     return await this.request('/api/admin/me');
+  }
+
+  async adminListGenerations(limit = 100) {
+    const n = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 300) : 100;
+    return await this.request(`/api/admin/generations?limit=${n}`);
   }
 
   async adminListModels() {

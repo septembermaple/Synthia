@@ -82,6 +82,10 @@ export default function Admin() {
             className={`admin-nav-item ${activeTab === 'stats' ? 'active' : ''}`}
             onClick={() => setActiveTab('stats')}
           >📊 报表统计</button>
+          <button
+            className={`admin-nav-item ${activeTab === 'generations' ? 'active' : ''}`}
+            onClick={() => setActiveTab('generations')}
+          >🖼 生成历史</button>
         </nav>
         <div className="admin-sidebar-footer">
           <button className="admin-btn-ghost" onClick={() => navigate('/')}>← 返回首页</button>
@@ -92,6 +96,7 @@ export default function Admin() {
         {activeTab === 'models' && <ModelManagement />}
         {activeTab === 'redeem' && <RedeemCodeManagement />}
         {activeTab === 'stats' && <Reports />}
+        {activeTab === 'generations' && <AdminGenerationsHistory />}
       </main>
     </div>
   );
@@ -320,6 +325,109 @@ function ModelFormModal({ initial, onCancel, onSave }) {
           <button type="submit" className="admin-btn-primary">保存</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function AdminGenerationsHistory() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const formatTime = (timeStr) => {
+    if (!timeStr) return '-';
+    const d = new Date(timeStr);
+    if (Number.isNaN(d.getTime())) return timeStr;
+    return d.toLocaleString('zh-CN', { hour12: false });
+  };
+
+  const formatRemain = (ms) => {
+    if (typeof ms !== 'number' || Number.isNaN(ms)) return '-';
+    if (ms <= 0) return '即将过期';
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    return `${h}小时${m}分`;
+  };
+
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await api.adminListGenerations(200);
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setError(e.message || '加载失败');
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="admin-section">
+      <div className="admin-section-header">
+        <h2>全员生成历史</h2>
+        <button type="button" className="admin-btn-primary" onClick={load}>刷新</button>
+      </div>
+      <p className="admin-hint" style={{ marginBottom: '1rem' }}>
+        与「用户中心」相同的 24 小时临时记录表；下列「完整提示词」仅管理端可见。
+      </p>
+      {error && <div className="admin-error">{error}</div>}
+      {loading && <div className="admin-loading">加载中...</div>}
+
+      {!loading && rows.length === 0 && !error && (
+        <div className="empty-state">暂无未过期的生成记录</div>
+      )}
+
+      {!loading && rows.length > 0 && (
+        <div className="admin-card" style={{ overflowX: 'auto' }}>
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>用户手机</th>
+                <th>场景</th>
+                <th>张数</th>
+                <th>缩略图</th>
+                <th>创建时间</th>
+                <th>剩余</th>
+                <th style={{ minWidth: 280 }}>完整提示词（仅管理员）</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const full = r.prompt_full != null && r.prompt_full !== '' ? r.prompt_full : r.prompt;
+                const thumb = Array.isArray(r.images) && r.images[0] ? r.images[0] : null;
+                return (
+                  <tr key={r.id}>
+                    <td>{r.id}</td>
+                    <td><code className="admin-code">{r.user_phone || '-'}</code></td>
+                    <td>{r.scene || '—'}</td>
+                    <td>{r.image_count ?? r.imageCount ?? '—'}</td>
+                    <td>
+                      {thumb ? (
+                        <a href={thumb} target="_blank" rel="noreferrer">
+                          <img src={thumb} alt="" className="admin-gen-thumb" />
+                        </a>
+                      ) : '—'}
+                    </td>
+                    <td>{formatTime(r.created_at)}</td>
+                    <td>{formatRemain(r.remainingTime)}</td>
+                    <td>
+                      <pre className="admin-gen-prompt-full">{full || '—'}</pre>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

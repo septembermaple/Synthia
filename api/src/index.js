@@ -291,9 +291,9 @@ async function handleImageGeneration(request, env, corsHeaders) {
   if (!isImageDataUrl(imageBase64)) {
     return jsonResponse({ error: '图片格式无效，仅支持 JPG/PNG/WEBP' }, 400, corsHeaders);
   }
-  const safeImageCount = parsePositiveInt(imageCount, 4);
+  const safeImageCount = parsePositiveInt(imageCount, 10);
   if (!safeImageCount) {
-    return jsonResponse({ error: '生成数量需为 1~4' }, 400, corsHeaders);
+    return jsonResponse({ error: '生成数量需为 1~10' }, 400, corsHeaders);
   }
 
   // 从数据库读取默认图片模型；失败则回退到硬编码
@@ -416,13 +416,14 @@ async function handleGeneratePrompt(request, env, corsHeaders) {
   if (!body || typeof body !== 'object') {
     return jsonResponse({ error: '请求参数无效' }, 400, corsHeaders);
   }
-  const { scene, style } = body;
+  const { scene, style, gender } = body;
   if (!isNonEmptyString(scene, 200)) {
     return jsonResponse({ error: '场景参数无效' }, 400, corsHeaders);
   }
   if (style !== undefined && style !== null && (typeof style !== 'string' || style.length > 200)) {
     return jsonResponse({ error: '风格参数无效' }, 400, corsHeaders);
   }
+  const genderLabel = gender === '男' || gender === '女' ? gender : '女';
   if (containsBlockedKeyword(scene) || containsBlockedKeyword(style || '')) {
     return jsonResponse({ error: '场景或风格包含敏感内容' }, 400, corsHeaders);
   }
@@ -437,7 +438,7 @@ async function handleGeneratePrompt(request, env, corsHeaders) {
   const arkApiUrl = model?.api_url || env.ARK_API_URL || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
   const arkModel = model?.model_id || env.ARK_MODEL || 'doubao-seed-2-0-mini-260215';
 
-  const inputKeyword = `[关键词：场景为：${scene}，风格为：${style || '未指定'}][我需要你帮我生成一段顶级的写真指令描述，包括但不限于风格，场景，人物，动作，镜头，光学等。待会我要用这段描述给图片大模型生成图片]`;
+  const inputKeyword = `[关键词：人物性别为${genderLabel}，场景为：${scene}，风格为：${style || '未指定'}][我需要你帮我生成一段顶级的写真指令描述，包括但不限于风格，场景，人物（需与上述性别一致），动作，镜头，光学，表情等。待会我要用这段描述给图片大模型生成图片]`;
 
   const startedAt = Date.now();
   try {
@@ -553,6 +554,8 @@ async function handleRequest(request, env, path, method) {
     return await handlePublicStats(request, env);
   } else if (path === '/api/admin/me' && method === 'GET') {
     return await handleAdminMe(request, env);
+  } else if (path === '/api/admin/generations' && method === 'GET') {
+    return await handleAdminListGenerations(request, env);
   } else if (path === '/api/admin/models' && method === 'GET') {
     return await handleAdminListModels(request, env);
   } else if (path === '/api/admin/models' && method === 'POST') {
@@ -1286,7 +1289,10 @@ async function handleGetGenerations(request, env) {
   }
 
   const generations = await env.DB.prepare(
-    'SELECT * FROM generations WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP ORDER BY created_at DESC'
+    `SELECT id, user_id, images, scene, image_count, created_at, expires_at
+     FROM generations
+     WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP
+     ORDER BY created_at DESC`
   ).bind(userId).all();
 
   return {
@@ -1301,7 +1307,7 @@ async function handleGetGenerations(request, env) {
       return {
         ...g,
         images,
-        remainingTime: new Date(g.expires_at) - new Date()
+        remainingTime: new Date(g.expires_at) - new Date(),
       };
     })
   };
@@ -1318,7 +1324,7 @@ async function handleSaveGeneration(request, env) {
   if (!body || typeof body !== 'object') {
     return { data: { error: '请求参数无效' }, status: 400 };
   }
-  const { images, prompt, scene, imageCount } = body;
+  const { images, prompt, promptFull, scene, imageCount } = body;
 
   if (!Array.isArray(images) || images.length === 0 || images.length > 10) {
     return { data: { error: '图片参数无效' }, status: 400 };
@@ -1329,13 +1335,17 @@ async function handleSaveGeneration(request, env) {
     }
   }
   const safePrompt = typeof prompt === 'string' ? prompt.slice(0, 4000) : '';
+  const safePromptFull =
+    typeof promptFull === 'string' && promptFull.length > 0
+      ? promptFull.slice(0, 8000)
+      : safePrompt;
   const safeScene = typeof scene === 'string' ? scene.slice(0, 200) : '';
   const safeImageCount = parsePositiveInt(imageCount, 10) || images.length;
 
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const result = await env.DB.prepare(
-    'INSERT INTO generations (user_id, images, prompt, scene, image_count, expires_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).bind(userId, JSON.stringify(images), safePrompt, safeScene, safeImageCount, expiresAt).run();
+    'INSERT INTO generations (user_id, images, prompt, prompt_full, scene, image_count, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind(userId, JSON.stringify(images), safePrompt, safePromptFull, safeScene, safeImageCount, expiresAt).run();
 
   return {
     data: {
@@ -1469,6 +1479,40 @@ async function handleAdminMe(request, env) {
     return { data: { error: guard.error }, status: guard.status };
   }
   return { data: { isAdmin: true, phone: guard.phone || '' } };
+}
+
+async function handleAdminListGenerations(request, env) {
+  const guard = await requireAdmin(request, env);
+  if (!guard.ok) return { data: { error: guard.error }, status: guard.status };
+
+  const rawLimit = parseInt(new URL(request.url).searchParams.get('limit'), 10);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 300) : 100;
+
+  const rows = await env.DB.prepare(
+    `SELECT g.*, u.phone AS user_phone
+     FROM generations g
+     INNER JOIN users u ON u.id = g.user_id
+     WHERE g.expires_at > CURRENT_TIMESTAMP
+     ORDER BY g.created_at DESC
+     LIMIT ?`
+  ).bind(limit).all();
+
+  const list = (rows.results || []).map((g) => {
+    let images = [];
+    try {
+      const parsed = JSON.parse(g.images);
+      images = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      images = [];
+    }
+    return {
+      ...g,
+      images,
+      remainingTime: new Date(g.expires_at) - new Date(),
+    };
+  });
+
+  return { data: list };
 }
 
 function sanitizeModelInput(body) {
