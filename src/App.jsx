@@ -489,336 +489,296 @@ function App({ requireAuth }) {
 
       {/* Upload Section */}
       <section className="upload-section">
-        <h2 className="section-title">开始创作</h2>
-        
-        <div className="upload-container-new">
-          {/* Left: Upload Area */}
-          <div className="upload-left">
-            <div 
-              className="upload-box"
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current.click()}
-            >
-              <input
-                type="file"
-                ref={fileInputRef}
-                multiple
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleImageUpload}
-              />
-              
-              {loading && (
-                <div className="scanning-overlay">
-                  <div className="scanning-line"></div>
-                  <p className="scanning-text">正在分析面部特征...</p>
-                </div>
-              )}
-
-              {images.length === 0 ? (
-                <>
-                  <svg className="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="17 8 12 3 7 8"/>
-                    <line x1="12" y1="3" x2="12" y2="15"/>
-                  </svg>
-                  <p className="upload-text">拖拽或点击上传照片</p>
-                  <p className="upload-hint">支持 JPG、PNG、WEBP，最多 {MAX_UPLOAD_FILES} 张，单张 ≤ {MAX_FILE_SIZE / (1024 * 1024)}MB</p>
-                </>
-              ) : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
-                  {images.map(img => {
-                    const isPrimary = img.id === primaryImageId;
-                    return (
-                      <div
-                        key={img.id}
-                        style={{ position: 'relative', cursor: 'pointer' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPrimaryImageId(img.id);
-                        }}
-                      >
-                        <img
-                          src={img.url}
-                          alt="预览"
-                          style={{
-                            width: '150px',
-                            height: '150px',
-                            objectFit: 'cover',
-                            borderRadius: '12px',
-                            outline: isPrimary ? '3px solid #6c5ce7' : 'none',
-                            boxShadow: isPrimary ? '0 0 0 2px rgba(108,92,231,0.3)' : 'none',
-                          }}
-                        />
-                        {isPrimary && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              bottom: '6px',
-                              left: '6px',
-                              background: 'rgba(108,92,231,0.95)',
-                              color: 'white',
-                              fontSize: '11px',
-                              padding: '2px 8px',
-                              borderRadius: '999px',
-                            }}
-                          >
-                            主图
-                          </div>
-                        )}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeImage(img.id);
-                          }}
-                          style={{
-                            position: 'absolute',
-                            top: '-8px',
-                            right: '-8px',
-                            background: '#ff6b6b',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '50%',
-                            width: '24px',
-                            height: '24px',
-                            cursor: 'pointer',
-                            fontSize: '14px',
-                          }}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {images.length > 1 && (
-                <p className="upload-hint" style={{ marginTop: '0.75rem', fontSize: '12px', opacity: 0.7 }}>
-                  点击任意图片可设为主图（仅主图会被用于生成）
-                </p>
-              )}
-            </div>
+        <div className="upload-section-inner">
+          <div className="upload-section-header">
+            <h2 className="upload-section-title">开始创作</h2>
+            <p className="upload-section-desc">上传照片，选择风格，AI 为你生成专属写真</p>
           </div>
 
-          {/* Right: Settings Panel */}
-          <div className="upload-right">
-            <div className="settings-panel">
-              {/* Tabs */}
-              <div className="settings-tabs">
-                <button 
-                  className={`settings-tab ${!showAdvanced ? 'active' : ''}`}
-                  onClick={() => setShowAdvanced(false)}
-                >
-                  基础设置
-                </button>
-                <button 
-                  className={`settings-tab ${showAdvanced ? 'active' : ''}`}
-                  onClick={() => setShowAdvanced(true)}
-                >
-                  高级设置
-                </button>
-              </div>
-
-              {/* 基础设置内容 */}
-              {!showAdvanced && (
-                <div className="settings-content">
-                  <div className="setting-item">
-                    <label className="setting-label">场景主题</label>
-                    <select
-                      className="setting-select"
-                      value={basicParams.sceneCategory && basicParams.scene ? `${basicParams.sceneCategory}|||${basicParams.scene}` : ''}
-                      onChange={(e) => {
-                        if (!e.target.value) {
-                          setBasicParams(prev => ({ 
-                            ...prev, 
-                            sceneCategory: '',
-                            scene: '',
-                            visualStyle: '',
-                          }));
-                          return;
-                        }
-                        const [category, sceneName] = e.target.value.split('|||');
-                        const sceneData = sceneCategories[category]?.find(s => s.name === sceneName);
-                        setBasicParams(prev => ({ 
-                          ...prev, 
-                          sceneCategory: category,
-                          scene: sceneName,
-                          visualStyle: sceneData ? sceneData.style : prev.visualStyle
-                        }));
-                      }}
-                    >
-                      <option value="">请选择场景</option>
-                      {Object.entries(sceneCategories).map(([category, scenes]) => (
-                        <optgroup key={category} label={category}>
-                          {scenes.map(scene => (
-                            <option key={scene.name} value={`${category}|||${scene.name}`}>
-                              {scene.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="setting-item">
-                    <label className="setting-label">性别</label>
-                    <select
-                      className="setting-select"
-                      value={basicParams.gender}
-                      onChange={(e) => setBasicParams(prev => ({ ...prev, gender: e.target.value }))}
-                    >
-                      <option value="女">女</option>
-                      <option value="男">男</option>
-                    </select>
-                  </div>
-
-                  <div className="setting-item">
-                    <label className="setting-label">输出尺寸</label>
-                    <select
-                      className="setting-select"
-                      disabled={!imageOutputSizeOptions || imageOutputSizeOptions.length === 0}
-                      value={
-                        imageOutputSizeOptions === null
-                          ? ''
-                          : (imageOutputSizeOptions.some((o) => o.value === basicParams.imageSize)
-                            ? basicParams.imageSize
-                            : (imageOutputSizeOptions[0]?.value ?? basicParams.imageSize))
-                      }
-                      onChange={(e) => setBasicParams(prev => ({ ...prev, imageSize: e.target.value }))}
-                    >
-                      {imageOutputSizeOptions === null && (
-                        <option value="">加载可选尺寸…</option>
-                      )}
-                      {(imageOutputSizeOptions ?? []).map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="setting-item">
-                    <label className="setting-label">生成数量</label>
-                    <select
-                      className="setting-select"
-                      value={imageCount}
-                      onChange={(e) => setImageCount(Number(e.target.value))}
-                    >
-                      {Array.from({ length: 10 }, (_, i) => i + 1).map(count => (
-                        <option key={count} value={count}>{count} 张</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="setting-item">
-                    <label className="setting-label">人脸保持</label>
-                    <label className="checkbox-option">
-                      <input
-                        type="checkbox"
-                        checked={keepFace}
-                        onChange={(e) => setKeepFace(e.target.checked)}
-                      />
-                      <span>保持原有人物五官特征</span>
-                    </label>
-                  </div>
-
-                </div>
-              )}
-
-              {/* 高级设置内容 */}
-              {showAdvanced && (
-                <div className="settings-content">
-                  <div className="setting-item">
-                    <label className="setting-label">视觉风格</label>
-                    <select
-                      className="setting-select"
-                      value={basicParams.visualStyle}
-                      onChange={(e) => setBasicParams(prev => ({ ...prev, visualStyle: e.target.value }))}
-                    >
-                      <option value="">请选择风格</option>
-                      {visualStyles.map(style => (
-                        <option key={style} value={style}>{style}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="setting-item">
-                    <label className="setting-label">构图</label>
-                    <select
-                      className="setting-select"
-                      value={advancedParams.composition}
-                      onChange={(e) => setAdvancedParams(prev => ({ ...prev, composition: e.target.value }))}
-                    >
-                      <option value="">请选择构图</option>
-                      {compositions.map(comp => (
-                        <option key={comp} value={comp}>{comp}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="setting-item">
-                    <label className="setting-label">光影</label>
-                    <select
-                      className="setting-select"
-                      value={advancedParams.lighting}
-                      onChange={(e) => setAdvancedParams(prev => ({ ...prev, lighting: e.target.value }))}
-                    >
-                      <option value="">请选择光影</option>
-                      {lightings.map(light => (
-                        <option key={light} value={light}>{light}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="setting-item">
-                    <label className="setting-label">情绪</label>
-                    <select
-                      className="setting-select"
-                      value={advancedParams.mood}
-                      onChange={(e) => setAdvancedParams(prev => ({ ...prev, mood: e.target.value }))}
-                    >
-                      <option value="">请选择情绪</option>
-                      {moods.map(mood => (
-                        <option key={mood} value={mood}>{mood}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              <button
-                className="generate-button"
-                onClick={generateImages}
-                disabled={loading}
+          <div className="upload-layout">
+            {/* Left: Upload Area */}
+            <div className="upload-area-wrap">
+              <div
+                className="upload-dropzone"
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current.click()}
               >
-                {loading
-                  ? (progress ? `生成中 ${progress.current}/${progress.total}...` : '生成中...')
-                  : '开始生成'}
-              </button>
-              {loading && (
-                <button
-                  className="cancel-generate-btn"
-                  type="button"
-                  onClick={cancelGeneration}
-                  style={{
-                    marginTop: '0.5rem',
-                    padding: '0.5rem 1rem',
-                    background: 'transparent',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    color: 'inherit',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  取消生成
-                </button>
-              )}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  multiple
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handleImageUpload}
+                />
 
-              <div className="expiry-notice">
-                ⏰ 生成结果保存24小时，请及时下载
+                {loading && (
+                  <div className="scanning-overlay">
+                    <div className="scanning-line"></div>
+                    <p className="scanning-text">正在分析面部特征...</p>
+                  </div>
+                )}
+
+                {images.length === 0 ? (
+                  <div className="upload-empty">
+                    <div className="upload-empty-icon">
+                      <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M24 32V16m0 0l-7 7m7-7l7 7"/>
+                        <path d="M6 32v6a4 4 0 004 4h28a4 4 0 004-4v-6"/>
+                      </svg>
+                    </div>
+                    <p className="upload-empty-text">拖拽或点击上传照片</p>
+                    <p className="upload-empty-hint">支持 JPG / PNG / WEBP，最多 {MAX_UPLOAD_FILES} 张，单张 ≤ {MAX_FILE_SIZE / (1024 * 1024)}MB</p>
+                  </div>
+                ) : (
+                  <div className="upload-preview-grid">
+                    {images.map(img => {
+                      const isPrimary = img.id === primaryImageId;
+                      return (
+                        <div
+                          key={img.id}
+                          className={`preview-thumb ${isPrimary ? 'preview-thumb--primary' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPrimaryImageId(img.id);
+                          }}
+                        >
+                          <img src={img.url} alt="预览" className="preview-thumb-img" />
+                          {isPrimary && <span className="preview-thumb-badge">主图</span>}
+                          <button
+                            className="preview-thumb-remove"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeImage(img.id);
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {images.length < MAX_UPLOAD_FILES && (
+                      <div className="preview-thumb preview-thumb--add" onClick={(e) => { e.stopPropagation(); fileInputRef.current.click(); }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
+              {images.length > 1 && (
+                <p className="upload-tip">点击任意图片设为主图（仅主图用于生成）</p>
+              )}
+            </div>
 
-              {error && <div className="error-message">{error}</div>}
+            {/* Right: Settings Panel */}
+            <div className="settings-wrap">
+              <div className="settings-card">
+                <div className="settings-card-header">
+                  <button
+                    className={`settings-tab-btn ${!showAdvanced ? 'active' : ''}`}
+                    onClick={() => setShowAdvanced(false)}
+                  >
+                    基础设置
+                  </button>
+                  <button
+                    className={`settings-tab-btn ${showAdvanced ? 'active' : ''}`}
+                    onClick={() => setShowAdvanced(true)}
+                  >
+                    高级设置
+                  </button>
+                </div>
+
+                {!showAdvanced && (
+                  <div className="settings-body">
+                    <div className="field">
+                      <label className="field-label">场景主题</label>
+                      <select
+                        className="field-select"
+                        value={basicParams.sceneCategory && basicParams.scene ? `${basicParams.sceneCategory}|||${basicParams.scene}` : ''}
+                        onChange={(e) => {
+                          if (!e.target.value) {
+                            setBasicParams(prev => ({
+                              ...prev,
+                              sceneCategory: '',
+                              scene: '',
+                              visualStyle: '',
+                            }));
+                            return;
+                          }
+                          const [category, sceneName] = e.target.value.split('|||');
+                          const sceneData = sceneCategories[category]?.find(s => s.name === sceneName);
+                          setBasicParams(prev => ({
+                            ...prev,
+                            sceneCategory: category,
+                            scene: sceneName,
+                            visualStyle: sceneData ? sceneData.style : prev.visualStyle
+                          }));
+                        }}
+                      >
+                        <option value="">请选择场景</option>
+                        {Object.entries(sceneCategories).map(([category, scenes]) => (
+                          <optgroup key={category} label={category}>
+                            {scenes.map(scene => (
+                              <option key={scene.name} value={`${category}|||${scene.name}`}>
+                                {scene.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="field-row">
+                      <div className="field">
+                        <label className="field-label">性别</label>
+                        <select
+                          className="field-select"
+                          value={basicParams.gender}
+                          onChange={(e) => setBasicParams(prev => ({ ...prev, gender: e.target.value }))}
+                        >
+                          <option value="女">女</option>
+                          <option value="男">男</option>
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label className="field-label">输出尺寸</label>
+                        <select
+                          className="field-select"
+                          disabled={!imageOutputSizeOptions || imageOutputSizeOptions.length === 0}
+                          value={
+                            imageOutputSizeOptions === null
+                              ? ''
+                              : (imageOutputSizeOptions.some((o) => o.value === basicParams.imageSize)
+                                ? basicParams.imageSize
+                                : (imageOutputSizeOptions[0]?.value ?? basicParams.imageSize))
+                          }
+                          onChange={(e) => setBasicParams(prev => ({ ...prev, imageSize: e.target.value }))}
+                        >
+                          {imageOutputSizeOptions === null && (
+                            <option value="">加载可选尺寸…</option>
+                          )}
+                          {(imageOutputSizeOptions ?? []).map((opt) => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="field-row">
+                      <div className="field">
+                        <label className="field-label">生成数量</label>
+                        <select
+                          className="field-select"
+                          value={imageCount}
+                          onChange={(e) => setImageCount(Number(e.target.value))}
+                        >
+                          {Array.from({ length: 10 }, (_, i) => i + 1).map(count => (
+                            <option key={count} value={count}>{count} 张</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label className="field-label">人脸保持</label>
+                        <label className="toggle-option">
+                          <input
+                            type="checkbox"
+                            checked={keepFace}
+                            onChange={(e) => setKeepFace(e.target.checked)}
+                          />
+                          <span className="toggle-track"><span className="toggle-thumb" /></span>
+                          <span className="toggle-text">保持五官特征</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {showAdvanced && (
+                  <div className="settings-body">
+                    <div className="field">
+                      <label className="field-label">视觉风格</label>
+                      <select
+                        className="field-select"
+                        value={basicParams.visualStyle}
+                        onChange={(e) => setBasicParams(prev => ({ ...prev, visualStyle: e.target.value }))}
+                      >
+                        <option value="">请选择风格</option>
+                        {visualStyles.map(style => (
+                          <option key={style} value={style}>{style}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="field-row">
+                      <div className="field">
+                        <label className="field-label">构图</label>
+                        <select
+                          className="field-select"
+                          value={advancedParams.composition}
+                          onChange={(e) => setAdvancedParams(prev => ({ ...prev, composition: e.target.value }))}
+                        >
+                          <option value="">请选择构图</option>
+                          {compositions.map(comp => (
+                            <option key={comp} value={comp}>{comp}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label className="field-label">光影</label>
+                        <select
+                          className="field-select"
+                          value={advancedParams.lighting}
+                          onChange={(e) => setAdvancedParams(prev => ({ ...prev, lighting: e.target.value }))}
+                        >
+                          <option value="">请选择光影</option>
+                          {lightings.map(light => (
+                            <option key={light} value={light}>{light}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="field">
+                      <label className="field-label">情绪</label>
+                      <select
+                        className="field-select"
+                        value={advancedParams.mood}
+                        onChange={(e) => setAdvancedParams(prev => ({ ...prev, mood: e.target.value }))}
+                      >
+                        <option value="">请选择情绪</option>
+                        {moods.map(mood => (
+                          <option key={mood} value={mood}>{mood}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                <div className="settings-footer">
+                  <button
+                    className="btn-generate"
+                    onClick={generateImages}
+                    disabled={loading}
+                  >
+                    {loading
+                      ? (progress ? `生成中 ${progress.current}/${progress.total}...` : '生成中...')
+                      : '开始生成'}
+                  </button>
+                  {loading && (
+                    <button
+                      className="btn-cancel"
+                      type="button"
+                      onClick={cancelGeneration}
+                    >
+                      取消生成
+                    </button>
+                  )}
+                  <p className="settings-expiry">生成结果保存 24 小时，请及时下载</p>
+                  {error && <div className="settings-error">{error}</div>}
+                </div>
+              </div>
             </div>
           </div>
         </div>
