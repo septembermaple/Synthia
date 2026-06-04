@@ -1,104 +1,170 @@
-# Synthia - Cloudflare 部署指南
+# Synthia - Node.js + Express + MySQL 部署指南
 
 ## 📋 部署前准备
 
-1. 注册 [Cloudflare](https://dash.cloudflare.com/) 账号
-2. 安装 Node.js (v18+)
-3. 安装 Wrangler CLI
-
-```bash
-npm install -g wrangler
-```
+1. 安装 Node.js (v18+)
+2. 安装 MySQL (5.7+ 或 8.0+)
+3. 准备一台服务器（或本地开发机）
 
 ## 🚀 部署步骤
 
-### 1. 登录 Cloudflare
+### 1. 安装 MySQL 并创建数据库
 
 ```bash
-wrangler login
+# 登录 MySQL
+mysql -u root -p
+
+# 创建数据库
+CREATE DATABASE synthia CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+# 退出 MySQL
+EXIT;
 ```
 
-### 2. 安装依赖并创建 D1 数据库
+### 2. 初始化数据库表结构
+
+```bash
+cd api
+mysql -u root -p synthia < schema.sql
+```
+
+### 3. 配置环境变量
+
+复制 `.env.example` 为 `.env` 并填写配置：
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env` 文件，填写以下关键配置：
+
+```env
+# 服务端口
+PORT=3000
+
+# 环境：production | development
+ENVIRONMENT=production
+
+# MySQL 数据库配置
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=你的MySQL密码
+DB_NAME=synthia
+
+# JWT 密钥（生产环境务必更换为随机长字符串）
+JWT_SECRET=你的JWT密钥
+
+# 豆包 / 方舟 API Key
+DOUBAO_API_KEY=你的豆包API密钥
+
+# 管理员手机号（逗号分隔）
+ADMIN_PHONES=13111111111,13222222222
+
+# 管理员密钥（用于接口调用鉴权）
+ADMIN_SECRET=你的管理员密钥
+
+# CORS 允许的前端域名（逗号分隔）
+ALLOWED_ORIGINS=https://your-frontend-domain.com
+
+# 每张图片消耗积分
+POINTS_PER_IMAGE=10
+```
+
+### 4. 安装依赖并启动 API
 
 ```bash
 cd api
 npm install
-npm run db:create
+npm start
 ```
 
-记录输出的 `database_id`，更新 `wrangler.toml` 文件：
+API 将运行在 `http://localhost:3000`
 
-```toml
-[[d1_databases]]
-binding = "DB"
-database_name = "synthia-db"
-database_id = "你的数据库ID"
-```
-
-### 3. 初始化数据库
+### 5. 使用 PM2 管理进程（推荐生产环境）
 
 ```bash
-npm run db:migrate
+# 安装 PM2
+npm install -g pm2
+
+# 启动服务
+cd api
+pm2 start src/index.js --name synthia-api
+
+# 设置开机自启
+pm2 startup
+pm2 save
 ```
 
-### 4. 部署 API
+常用 PM2 命令：
 
 ```bash
-npm run deploy
+pm2 status              # 查看进程状态
+pm2 logs synthia-api    # 查看日志
+pm2 restart synthia-api # 重启服务
+pm2 stop synthia-api    # 停止服务
+pm2 delete synthia-api  # 删除进程
 ```
 
-记录输出的 API URL，例如：`https://synthia-api.your-subdomain.workers.dev`
-
-### 5. 配置前端环境变量
+### 6. 配置前端环境变量
 
 在项目根目录创建 `.env.production`：
 
 ```env
-VITE_API_URL=https://synthia-api.your-subdomain.workers.dev
+VITE_API_URL=https://your-api-domain.com
 VITE_DOUBAO_API_KEY=你的豆包API密钥
 ```
 
-### 6. 构建前端
+### 7. 构建前端
 
 ```bash
-cd ..
+# 在项目根目录
+npm install
 npm run build
 ```
 
-### 7. 部署前端到 Cloudflare Pages
+### 8. 部署前端
 
-#### 方法一：通过 Dashboard
+前端构建产物为 `dist` 文件夹，可部署到任意静态托管服务：
 
-1. 访问 [Cloudflare Pages](https://pages.cloudflare.com/)
-2. 点击"创建项目"
-3. 选择"直接上传"
-4. 上传 `dist` 文件夹
+#### 方法一：Nginx
 
-#### 方法二：通过 Wrangler
+```nginx
+server {
+    listen 80;
+    server_name your-frontend-domain.com;
+    root /var/www/synthia/dist;
+    index index.html;
 
-```bash
-wrangler pages deploy dist --project-name=synthia
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
 ```
 
-### 8. 配置定时任务清理过期数据
+#### 方法二：其他静态托管
 
-在 Cloudflare Dashboard 中：
+将 `dist` 文件夹上传至任意静态托管平台，如：
+- Vercel
+- Netlify
+- Cloudflare Pages
+- 阿里云 OSS + CDN
+- 腾讯云 COS + CDN
 
-1. 进入 Workers & Pages
-2. 选择你的 API Worker
-3. 点击"Triggers"标签
-4. 添加 Cron Trigger：`0 * * * *`（每小时执行）
-5. 配置清理端点：`/api/generations/cleanup`
+### 9. 定时清理（已内置）
+
+项目已通过 `node-cron` 内置了每小时自动清理过期数据的定时任务，无需额外配置。服务启动后自动生效。
 
 ## 📁 项目结构
 
 ```
 synthia/
-├── api/                    # Cloudflare Workers API
+├── api/                    # Node.js + Express API
 │   ├── src/
 │   │   └── index.js       # API 入口文件
-│   ├── schema.sql         # 数据库 Schema
-│   ├── wrangler.toml      # Workers 配置
+│   ├── schema.sql         # MySQL 数据库 Schema
+│   ├── .env.example       # 环境变量示例
+│   ├── .env               # 环境变量（不提交到 Git）
 │   └── package.json
 ├── src/                    # React 前端
 │   ├── services/
@@ -107,7 +173,13 @@ synthia/
 │   │   └── AuthContext.jsx
 │   ├── pages/
 │   │   ├── Login.jsx
-│   │   └── Dashboard.jsx
+│   │   ├── Dashboard.jsx
+│   │   ├── Admin.jsx
+│   │   └── Legal.jsx
+│   ├── components/
+│   │   ├── ErrorBoundary.jsx
+│   │   ├── ProtectedRoute.jsx
+│   │   └── StatsBar.jsx
 │   ├── data/
 │   │   └── promptLibrary.js
 │   └── App.jsx
@@ -124,7 +196,7 @@ npm install
 npm run dev
 ```
 
-API 将运行在 `http://localhost:8787`
+API 将运行在 `http://localhost:3000`
 
 ### 启动前端
 
@@ -138,26 +210,40 @@ npm run dev
 
 ### 本地数据库
 
-```bash
-cd api
-npm run db:migrate:local
-```
+确保本地已安装并运行 MySQL，创建数据库后执行 Schema：
 
-本地数据库文件：`.wrangler/state/v3/d1/miniflare-D1DatabaseObject`
+```bash
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS synthia CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql -u root -p synthia < api/schema.sql
+```
 
 ## 🔐 环境变量
 
-### API (wrangler.toml)
+### API (.env)
 
-```toml
-[vars]
-ENVIRONMENT = "production"
+```env
+PORT=3000
+ENVIRONMENT=development
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+DB_NAME=synthia
+JWT_SECRET=your_jwt_secret_here
+DOUBAO_API_KEY=your_doubao_api_key
+ARK_API_KEY=
+ARK_API_URL=https://ark.cn-beijing.volces.com/api/v3/chat/completions
+ARK_MODEL=doubao-seed-2-0-mini-260215
+ADMIN_PHONES=13111111111,13222222222
+ADMIN_SECRET=your_admin_secret_here
+ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+POINTS_PER_IMAGE=10
 ```
 
 ### 前端 (.env)
 
 ```env
-VITE_API_URL=http://localhost:8787
+VITE_API_URL=http://localhost:3000
 VITE_DOUBAO_API_KEY=你的豆包API密钥
 ```
 
@@ -166,19 +252,25 @@ VITE_DOUBAO_API_KEY=你的豆包API密钥
 ### 查询数据
 
 ```bash
-wrangler d1 execute synthia-db --command="SELECT * FROM users"
+mysql -u root -p synthia -e "SELECT * FROM users;"
 ```
 
 ### 导出数据
 
 ```bash
-wrangler d1 export synthia-db --output=backup.sql
+mysqldump -u root -p synthia > backup.sql
 ```
 
 ### 导入数据
 
 ```bash
-wrangler d1 execute synthia-db --file=backup.sql
+mysql -u root -p synthia < backup.sql
+```
+
+### 执行迁移脚本
+
+```bash
+mysql -u root -p synthia < api/migrate-2026-04.sql
 ```
 
 ## 🔄 API 端点
@@ -206,60 +298,77 @@ wrangler d1 execute synthia-db --file=backup.sql
 
 ## 💰 费用估算
 
-### Cloudflare Workers
-- 免费额度：100,000 请求/天
-- 超出后：$0.50 / 百万请求
+### 服务器
+- 入门级云服务器（1核2G）：约 ¥30~50/月
+- 推荐配置（2核4G）：约 ¥60~100/月
 
-### Cloudflare D1
-- 免费额度：5GB 存储，500万行读取/天
-- 超出后：$5 / GB 存储，$1 / 百万行读取
+### MySQL
+- 使用服务器自建 MySQL：免费（含在服务器费用中）
+- 云数据库（如 RDS）：约 ¥50~200/月
 
-### Cloudflare Pages
-- 免费额度：无限带宽
-- 构建：500次/月
+### 前端托管
+- Nginx 自建：免费（含在服务器费用中）
+- Vercel / Netlify 免费额度：100GB 带宽/月
+- Cloudflare Pages：无限带宽
 
-**预计月费用：免费**（在免费额度内）
+### AI API 调用
+- 豆包/方舟 API：按实际使用量计费
+
+**预计月费用：¥30~100**（取决于服务器配置和 AI API 调用量）
 
 ## 🛡️ 安全建议
 
 1. **API 密钥保护**
    - 不要在前端暴露豆包 API 密钥
-   - 使用环境变量管理敏感信息
+   - 使用 `.env` 文件管理敏感信息，确保 `.env` 已加入 `.gitignore`
 
 2. **用户认证**
-   - 当前使用简单的 User-ID 认证
-   - 生产环境建议使用 JWT 或 Session
+   - 当前使用 JWT + token_version 双重认证
+   - 生产环境务必设置强随机 `JWT_SECRET`
 
 3. **速率限制**
-   - 在 Workers 中添加速率限制
-   - 防止 API 滥用
+   - 服务端已内置基于 IP 和用户的速率限制
+   - 可通过 Nginx 添加额外的请求频率限制
 
 4. **HTTPS**
-   - Cloudflare 自动提供 HTTPS
-   - 确保所有 API 调用使用 HTTPS
+   - 生产环境务必启用 HTTPS
+   - 可使用 Let's Encrypt 免费证书
+   - 配置 Nginx 反向代理并启用 SSL
+
+5. **数据库安全**
+   - 不要使用 root 账号连接数据库，创建专用账号并限制权限
+   - 定期备份数据库
+   - 限制 MySQL 仅监听本地连接（`bind-address = 127.0.0.1`）
+
+6. **环境变量**
+   - 生产环境的 `.env` 文件不要提交到版本控制
+   - 定期更换 `JWT_SECRET` 和 `ADMIN_SECRET`
 
 ## 📞 故障排查
 
-### API 无法访问
-1. 检查 `wrangler.toml` 配置
-2. 确认数据库 ID 正确
-3. 查看 Workers 日志
+### API 无法启动
+1. 检查 `.env` 配置是否正确
+2. 确认 Node.js 版本 >= 18
+3. 检查端口 3000 是否被占用
+4. 查看 PM2 日志：`pm2 logs synthia-api`
 
 ### 数据库连接失败
-1. 确认数据库已创建
-2. 检查 binding 名称是否正确
-3. 运行迁移脚本
+1. 确认 MySQL 服务已启动
+2. 检查 `.env` 中的数据库连接信息
+3. 确认数据库已创建：`mysql -u root -p -e "SHOW DATABASES;"`
+4. 检查数据库用户权限
 
 ### 前端无法调用 API
-1. 检查 CORS 配置
+1. 检查 CORS 配置（`.env` 中的 `ALLOWED_ORIGINS`）
 2. 确认 API URL 正确
 3. 查看浏览器控制台错误
+4. 检查 Nginx 反向代理配置
 
 ## 🎉 部署完成！
 
 访问你的应用：
-- 前端：`https://synthia.pages.dev`
-- API：`https://synthia-api.your-subdomain.workers.dev`
+- 前端：`https://your-frontend-domain.com`
+- API：`https://your-api-domain.com`
 
 测试账户：
 - 手机号：13111111111 / 13222222222 / 13333333333

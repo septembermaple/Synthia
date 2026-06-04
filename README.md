@@ -1,6 +1,6 @@
 # Synthia - AI 写真生成平台
 
-基于豆包 API 的 AI 写真生成平台，支持多种风格和场景，使用 React + Cloudflare Workers + D1 数据库构建。
+基于豆包 API 的 AI 写真生成平台，支持多种风格和场景，使用 React + Node.js + Express + MySQL 构建。
 
 ## ✨ 功能特性
 
@@ -34,6 +34,7 @@
 ### 前置要求
 - Node.js >= 18
 - npm 或 yarn
+- MySQL >= 5.7
 - 豆包 API Key
 
 ### 本地开发
@@ -57,7 +58,7 @@ cp .env.example .env.local
 编辑 `.env.local`：
 ```env
 VITE_USE_API=false
-VITE_API_URL=http://localhost:8787
+VITE_API_URL=http://localhost:3000
 VITE_DOUBAO_API_KEY=your_doubao_api_key
 ```
 
@@ -68,43 +69,48 @@ npm run dev
 
 访问 `http://localhost:5173`
 
-### 使用 Cloudflare D1 数据库
+### 使用 MySQL 数据库
 
-1. **安装 Wrangler**
+1. **安装并启动 MySQL**
 ```bash
-npm install -g wrangler
+# 确保 MySQL 服务已启动
+mysql -u root -p
 ```
 
-2. **登录 Cloudflare**
-```bash
-wrangler login
+2. **创建数据库**
+```sql
+CREATE DATABASE synthia CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-3. **创建数据库**
+3. **配置后端环境变量**
+编辑 `api/.env`：
+```env
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+DB_NAME=synthia
+PORT=3000
+DOUBAO_API_KEY=your_doubao_api_key
+```
+
+4. **安装后端依赖并初始化数据库**
 ```bash
 cd api
 npm install
-npm run db:create
-```
-
-4. **更新配置**
-编辑 `api/wrangler.toml`，填入数据库ID
-
-5. **初始化数据库**
-```bash
 npm run db:migrate
 ```
 
-6. **启动 API**
+5. **启动 API**
 ```bash
 npm run dev
 ```
 
-7. **配置前端**
+6. **配置前端**
 编辑 `.env.local`：
 ```env
 VITE_USE_API=true
-VITE_API_URL=http://localhost:8787
+VITE_API_URL=http://localhost:3000
 ```
 
 ## 📦 部署
@@ -116,7 +122,8 @@ VITE_API_URL=http://localhost:8787
 1. **部署 API**
 ```bash
 cd api
-npm run deploy
+# 配置生产环境 .env
+npm run start
 ```
 
 2. **构建前端**
@@ -125,9 +132,7 @@ npm run build
 ```
 
 3. **部署前端**
-```bash
-wrangler pages deploy dist --project-name=synthia
-```
+将 `dist` 目录部署到任意静态服务器或反向代理（如 Nginx）
 
 ## 🎯 测试账户
 
@@ -141,11 +146,11 @@ wrangler pages deploy dist --project-name=synthia
 
 ```
 synthia/
-├── api/                    # Cloudflare Workers API
+├── api/                    # Node.js + Express API
 │   ├── src/
 │   │   └── index.js       # API 入口
 │   ├── schema.sql         # 数据库 Schema
-│   ├── wrangler.toml      # Workers 配置
+│   ├── .env               # 后端环境变量
 │   └── package.json
 ├── src/                    # React 前端
 │   ├── services/
@@ -179,8 +184,8 @@ synthia/
 - CSS3 (Glassmorphism)
 
 ### 后端
-- Cloudflare Workers
-- Cloudflare D1 (SQLite)
+- Node.js + Express
+- MySQL
 
 ### API
 - 豆包 AI API
@@ -188,23 +193,23 @@ synthia/
 ## 📊 数据库设计
 
 ### 用户表 (users)
-- id, phone, password, points, created_at, updated_at
+- id INT AUTO_INCREMENT PRIMARY KEY, phone VARCHAR(11), password VARCHAR(255), points INT DEFAULT 0, created_at DATETIME, updated_at DATETIME
 
 ### 交易记录表 (transactions)
-- id, user_id, amount, type, description, balance, created_at
+- id INT AUTO_INCREMENT PRIMARY KEY, user_id INT, amount INT, type VARCHAR(20), description VARCHAR(255), balance INT, created_at DATETIME
 
 ### 生成记录表 (generations)
-- id, user_id, images, prompt, scene, image_count, created_at, expires_at
+- id INT AUTO_INCREMENT PRIMARY KEY, user_id INT, images TEXT, prompt VARCHAR(500), scene VARCHAR(50), image_count INT, created_at DATETIME, expires_at DATETIME
 
 ### 已使用描述词表 (used_prompts)
-- id, user_id, prompt_id, created_at
+- id INT AUTO_INCREMENT PRIMARY KEY, user_id INT, prompt_id INT, created_at DATETIME
 
 ## 🔐 环境变量
 
 | 变量名 | 说明 | 示例 |
 |--------|------|------|
 | VITE_USE_API | 是否使用 API | true/false |
-| VITE_API_URL | API 地址 | http://localhost:8787 |
+| VITE_API_URL | API 地址 | http://localhost:3000 |
 | VITE_DOUBAO_API_KEY | 豆包 API 密钥 | your_api_key |
 
 ## 📝 开发说明
@@ -215,9 +220,9 @@ synthia/
 - 清除浏览器数据会丢失所有信息
 
 ### API 模式
-- 数据保存在 Cloudflare D1
+- 数据保存在 MySQL
 - 支持跨设备同步
-- 需要部署 Cloudflare Workers
+- 需要部署 Node.js + Express 后端
 
 ### 切换模式
 修改 `.env.local` 中的 `VITE_USE_API` 即可
@@ -233,6 +238,8 @@ MIT License
 ## 🙏 致谢
 
 - [豆包 AI](https://www.doubao.com/)
-- [Cloudflare](https://www.cloudflare.com/)
+- [Node.js](https://nodejs.org/)
+- [Express](https://expressjs.com/)
+- [MySQL](https://www.mysql.com/)
 - [React](https://react.dev/)
 - [Vite](https://vitejs.dev/)

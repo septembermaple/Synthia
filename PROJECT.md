@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-Synthia 是一个 AI 写真生成平台，用户可以上传照片，选择不同风格，生成艺术写真图片。项目部署在 Cloudflare 平台上，使用 Cloudflare Workers 作为后端 API，Cloudflare D1 作为数据库，Cloudflare Pages 托管前端。
+Synthia 是一个 AI 写真生成平台，用户可以上传照片，选择不同风格，生成艺术写真图片。项目使用 Node.js + Express 作为后端 API，MySQL 作为数据库。
 
 ---
 
@@ -12,9 +12,8 @@ Synthia 是一个 AI 写真生成平台，用户可以上传照片，选择不�
 |------|------|
 | 前端框架 | React 18 + Vite |
 | 路由 | React Router DOM v6 |
-| 后端 | Cloudflare Workers |
-| 数据库 | Cloudflare D1 (SQLite) |
-| 托管 | Cloudflare Pages |
+| 后端 | Node.js + Express |
+| 数据库 | MySQL |
 | AI API | 豆包 Doubao API (图片生成) |
 
 ---
@@ -23,11 +22,11 @@ Synthia 是一个 AI 写真生成平台，用户可以上传照片，选择不�
 
 ```
 synthia/
-├── api/                          # 后端 API (Cloudflare Workers)
+├── api/                          # 后端 API (Node.js + Express)
 │   ├── src/
 │   │   └── index.js              # API 入口文件，所有接口处理逻辑
 │   ├── schema.sql                # 数据库表结构定义
-│   ├── wrangler.toml             # Workers 配置文件
+│   ├── .env                      # 后端环境变量（不提交）
 │   └── package.json
 │
 ├── src/                          # 前端 React 应用
@@ -90,7 +89,7 @@ synthia/
     ↓
 请求发送到后端 /api/images/generate
     ↓
-后端调用豆包 API（API KEY 安全存储在 Workers Secret）
+后端调用豆包 API（API KEY 安全存储在 .env 中）
     ↓
 流式返回生成的图片 URL
     ↓
@@ -98,7 +97,7 @@ synthia/
 ```
 
 **安全设计**:
-- API KEY 存储在 Cloudflare Workers Secret，不在前端暴露
+- API KEY 存储在后端 .env 配置文件中，不在前端暴露
 - 前端只调用后端代理接口，不直接调用豆包 API
 
 ---
@@ -154,70 +153,70 @@ synthia/
 
 ```sql
 CREATE TABLE users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  phone TEXT UNIQUE NOT NULL,           -- 手机号
-  password TEXT DEFAULT '',             -- 密码（可选）
-  points INTEGER DEFAULT 100,           -- 积分余额
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  phone VARCHAR(20) UNIQUE NOT NULL,           -- 手机号
+  password VARCHAR(255) DEFAULT '',             -- 密码（可选）
+  points INT DEFAULT 100,                       -- 积分余额
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
 ### transactions 表 - 积分交易记录
 
 ```sql
 CREATE TABLE transactions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,             -- 用户ID
-  amount INTEGER NOT NULL,              -- 金额（正数充值，负数消费）
-  type TEXT NOT NULL,                   -- 类型：'充值' 或 '消费'
-  description TEXT NOT NULL,            -- 描述
-  balance INTEGER NOT NULL,             -- 交易后余额
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  user_id INT NOT NULL,                         -- 用户ID
+  amount INT NOT NULL,                          -- 金额（正数充值，负数消费）
+  type VARCHAR(20) NOT NULL,                    -- 类型：'充值' 或 '消费'
+  description VARCHAR(255) NOT NULL,            -- 描述
+  balance INT NOT NULL,                         -- 交易后余额
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
 ### generations 表 - 生成记录
 
 ```sql
 CREATE TABLE generations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,             -- 用户ID
-  images TEXT NOT NULL,                 -- 图片URL数组（JSON）
-  prompt TEXT NOT NULL,                 -- 使用的描述词
-  scene TEXT DEFAULT '',                -- 场景
-  image_count INTEGER NOT NULL,         -- 图片数量
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  expires_at TEXT NOT NULL,             -- 过期时间（24小时）
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  user_id INT NOT NULL,                         -- 用户ID
+  images TEXT NOT NULL,                         -- 图片URL数组（JSON）
+  prompt TEXT NOT NULL,                         -- 使用的描述词
+  scene VARCHAR(100) DEFAULT '',                -- 场景
+  image_count INT NOT NULL,                     -- 图片数量
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME NOT NULL,                 -- 过期时间（24小时）
   FOREIGN KEY (user_id) REFERENCES users(id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
 ### used_prompts 表 - 已使用的描述词
 
 ```sql
 CREATE TABLE used_prompts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,
-  prompt_id INTEGER NOT NULL,           -- 描述词ID
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  prompt_id INT NOT NULL,                       -- 描述词ID
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id),
-  UNIQUE(user_id, prompt_id)            -- 防止重复
-);
+  UNIQUE KEY uk_user_prompt (user_id, prompt_id) -- 防止重复
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
 ### prompts 表 - 提示词库
 
 ```sql
 CREATE TABLE prompts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  description TEXT NOT NULL,            -- 提示词内容
-  image_count INTEGER DEFAULT 3,        -- 生成图片数量
-  is_active INTEGER DEFAULT 1,          -- 是否启用（1启用，0禁用）
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  description TEXT NOT NULL,                    -- 提示词内容
+  image_count INT DEFAULT 3,                    -- 生成图片数量
+  is_active TINYINT DEFAULT 1,                  -- 是否启用（1启用，0禁用）
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
 **说明**：
@@ -234,32 +233,29 @@ CREATE TABLE prompts (
 
 ```env
 VITE_USE_API=true
-VITE_API_URL=https://synthia-api.83123472g.workers.dev
+VITE_API_URL=https://synthia-api.example.com
 VITE_DOUBAO_API_KEY=xxx   # 注意：此变量已不使用，API KEY 在后端配置
 ```
 
-### 后端 (Cloudflare Workers Secret)
+### 后端 (api/.env)
 
-```bash
-# 设置豆包 API KEY
-npx wrangler secret put DOUBAO_API_KEY
-```
+```env
+# 服务器配置
+PORT=3000
+NODE_ENV=production
 
-### 后端 (wrangler.toml)
+# 数据库配置
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=synthia_user
+DB_PASSWORD=your_db_password
+DB_NAME=synthia
 
-```toml
-name = "synthia-api"
-main = "src/index.js"
-compatibility_date = "2024-12-01"
-compatibility_flags = ["nodejs_compat"]
+# 豆包 API
+DOUBAO_API_KEY=your_doubao_api_key
 
-[[d1_databases]]
-binding = "DB"
-database_name = "synthia-db"
-database_id = "551bbb9a-c286-4c9a-b822-3f45fc86a372"
-
-[vars]
-ENVIRONMENT = "production"
+# 跨域配置
+CORS_ORIGIN=https://synthia.example.com
 ```
 
 ---
@@ -268,44 +264,51 @@ ENVIRONMENT = "production"
 
 ### 首次部署
 
-1. **创建 D1 数据库**
+1. **创建 MySQL 数据库**
+   ```bash
+   mysql -u root -p
+   CREATE DATABASE synthia CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   CREATE USER 'synthia_user'@'localhost' IDENTIFIED BY 'your_db_password';
+   GRANT ALL PRIVILEGES ON synthia.* TO 'synthia_user'@'localhost';
+   FLUSH PRIVILEGES;
+   ```
+
+2. **初始化数据库表结构**
+   ```bash
+   mysql -u synthia_user -p synthia < api/schema.sql
+   ```
+
+3. **配置后端环境变量**
    ```bash
    cd api
-   npx wrangler d1 create synthia-db
-   # 记录返回的 database_id，更新到 wrangler.toml
+   cp .env.example .env
+   # 编辑 .env 文件，填入数据库连接信息和豆包 API KEY
    ```
 
-2. **初始化数据库**
+4. **安装后端依赖并启动**
    ```bash
-   npx wrangler d1 execute synthia-db --remote --file=./schema.sql
+   cd api
+   npm install
+   npm start
    ```
 
-3. **设置 API Secret**
-   ```bash
-   npx wrangler secret put DOUBAO_API_KEY
-   # 输入豆包 API KEY
-   ```
-
-4. **部署后端**
-   ```bash
-   npx wrangler deploy
-   ```
-
-5. **构建并部署前端**
+5. **构建前端**
    ```bash
    cd ..
+   npm install
    npm run build
-   npx wrangler pages deploy dist --project-name=synthia
+   # 将 dist 目录部署到 Web 服务器（如 Nginx）
    ```
 
 ### 日常更新
 
 ```bash
 # 更新后端
-cd api && npx wrangler deploy
+cd api && git pull && npm install && npm restart
 
 # 更新前端
-npm run build && npx wrangler pages deploy dist --project-name=synthia
+npm run build
+# 将 dist 目录重新部署到 Web 服务器
 ```
 
 ---
@@ -332,14 +335,15 @@ npm run build && npx wrangler pages deploy dist --project-name=synthia
 
 ### 1. 安全相关
 
-- **API KEY 保护**: 豆包 API KEY 存储在后端 Workers Secret，前端不可见
+- **API KEY 保护**: 豆包 API KEY 存储在后端 .env 配置文件中，前端不可见
 - **Token 认证**: 使用 Token 而非 Cookie，避免跨域问题
 - **敏感信息**: 不要在前端代码中打印敏感信息
+- **.env 文件**: 确保 .env 文件已加入 .gitignore，不要提交到代码仓库
 
 ### 2. 数据清理
 
 - 生成记录 24 小时后自动过期
-- 需要配置 Cron Trigger 调用 `/api/generations/cleanup` 清理
+- 需要配置定时任务（如 cron）调用 `/api/generations/cleanup` 清理
 
 ### 3. 跨域配置
 
@@ -371,7 +375,7 @@ const corsHeaders = {
 
 ### 2. 图片生成失败
 
-- 检查后端是否配置了 `DOUBAO_API_KEY` Secret
+- 检查后端 .env 文件中是否配置了 `DOUBAO_API_KEY`
 - 检查豆包 API 是否正常
 
 ### 3. 跨域问题
@@ -381,8 +385,9 @@ const corsHeaders = {
 
 ### 4. 数据库连接失败
 
-- 确认 D1 数据库已创建
-- 确认 `wrangler.toml` 中 database_id 正确
+- 确认 MySQL 服务已启动
+- 检查 .env 文件中数据库连接信息（DB_HOST、DB_PORT、DB_USER、DB_PASSWORD、DB_NAME）是否正确
+- 确认数据库用户权限已正确配置
 
 ---
 
