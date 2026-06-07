@@ -986,7 +986,9 @@ app.post('/api/images/generate-portrait', async (req, res) => {
     return res.status(status).json({ error: deduct.message });
   }
 
-  const signal = req.signal;
+  // 移除 req.signal，避免请求被提前取消
+  // const signal = req.signal;
+  const signal = undefined;
   const startedAt = Date.now();
 
   try {
