@@ -55,11 +55,11 @@ export default function Admin() {
   }
   if (!isAdmin) {
     return (
-      <div className="admin-container">
-        <div className="admin-forbidden">
+      <div className="admin-container" style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <div className="admin-forbidden" style={{ textAlign: 'center' }}>
           <h2>无管理员权限</h2>
-          <p>当前账号不在管理员白名单，请联系系统管理员。</p>
-          <button className="admin-btn" onClick={() => navigate('/')}>返回首页</button>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>当前账号不在管理员白名单，请联系系统管理员。</p>
+          <button className="admin-btn-primary" onClick={() => navigate('/')}>返回首页</button>
         </div>
       </div>
     );
@@ -88,7 +88,7 @@ export default function Admin() {
           >🖼 生成历史</button>
         </nav>
         <div className="admin-sidebar-footer">
-          <button className="admin-btn-ghost" onClick={() => navigate('/')}>← 返回首页</button>
+          <button className="admin-btn-ghost" style={{ width: '100%', textAlign: 'center' }} onClick={() => navigate('/')}>← 返回首页</button>
         </div>
       </aside>
 
@@ -813,7 +813,7 @@ function RedeemCodeManagement() {
           <div>
             <label className="admin-hint">状态</label>
             <select value={filter.status} onChange={e => setFilter(f => ({ ...f, status: e.target.value }))}
-              style={{ width: '100%', padding: '0.4rem', background: '#0f1218', color: '#e6e8eb', border: '1px solid #2a2f38', borderRadius: 6 }}>
+              style={{ width: '100%', padding: '0.55rem 2.2rem 0.55rem 0.8rem', background: 'rgba(255, 255, 255, 0.04)', color: 'var(--text-primary)', border: '1px solid var(--glass-border)', borderRadius: 10, fontSize: '0.9rem', appearance: 'none', backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2300d4ff' d='M1.41 0L6 4.58 10.59 0 12 1.41l-6 6-6-6z'/%3E%3C/svg%3E\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.8rem center' }}>
               <option value="">全部</option>
               <option value="active">启用</option>
               <option value="disabled">停用</option>
@@ -822,12 +822,12 @@ function RedeemCodeManagement() {
           <div>
             <label className="admin-hint">关键词（兑换码 / 备注）</label>
             <input value={filter.q} onChange={e => setFilter(f => ({ ...f, q: e.target.value }))}
-              style={{ width: '100%', padding: '0.4rem', background: '#0f1218', color: '#e6e8eb', border: '1px solid #2a2f38', borderRadius: 6 }} />
+              style={{ width: '100%', padding: '0.55rem 0.8rem', background: 'rgba(255, 255, 255, 0.04)', color: 'var(--text-primary)', border: '1px solid var(--glass-border)', borderRadius: 10, fontSize: '0.9rem' }} />
           </div>
           <div>
             <label className="admin-hint">批次号</label>
             <input value={filter.batch_id} onChange={e => setFilter(f => ({ ...f, batch_id: e.target.value }))}
-              style={{ width: '100%', padding: '0.4rem', background: '#0f1218', color: '#e6e8eb', border: '1px solid #2a2f38', borderRadius: 6 }} />
+              style={{ width: '100%', padding: '0.55rem 0.8rem', background: 'rgba(255, 255, 255, 0.04)', color: 'var(--text-primary)', border: '1px solid var(--glass-border)', borderRadius: 10, fontSize: '0.9rem' }} />
           </div>
           <div>
             <button className="admin-btn-ghost" onClick={load}>🔍 查询</button>
@@ -863,7 +863,7 @@ function RedeemCodeManagement() {
                   <td>{c.used_count} / {c.max_uses}</td>
                   <td><span className={`admin-badge ${st.cls}`}>{st.label}</span></td>
                   <td>{c.expires_at ? fmt(c.expires_at) : '永久'}</td>
-                  <td><span style={{ fontSize: '0.75rem', color: '#858c97' }}>{c.batch_id || '-'}</span></td>
+                  <td><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{c.batch_id || '-'}</span></td>
                   <td style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.note}>{c.note || '-'}</td>
                   <td>{fmt(c.created_at)}</td>
                   <td>
