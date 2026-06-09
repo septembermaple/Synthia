@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import api from './services/api';
 import StatsBar from './components/StatsBar';
+import CustomSelect from './components/CustomSelect';
 
 const sceneCategories = {
   '自然与旷野': [
@@ -114,7 +115,6 @@ function App({ requireAuth }) {
     sceneCategory: '',
     scene: '',
     visualStyle: '',
-    gender: '女',
     imageSize: '2K',
   });
   /** 由后端根据当前默认图生模型返回；null 表示加载中 */
@@ -331,7 +331,6 @@ function App({ requireAuth }) {
         {
           scene: basicParams.scene,
           style,
-          gender: basicParams.gender,
           keepFace,
           imageBase64,
           imageCount,
@@ -594,8 +593,7 @@ function App({ requireAuth }) {
                   <div className="settings-body">
                     <div className="field">
                       <label className="field-label">场景主题</label>
-                      <select
-                        className="field-select"
+                      <CustomSelect
                         value={basicParams.sceneCategory && basicParams.scene ? `${basicParams.sceneCategory}|||${basicParams.scene}` : ''}
                         onChange={(e) => {
                           if (!e.target.value) {
@@ -616,36 +614,24 @@ function App({ requireAuth }) {
                             visualStyle: sceneData ? sceneData.style : prev.visualStyle
                           }));
                         }}
-                      >
-                        <option value="">请选择场景</option>
-                        {Object.entries(sceneCategories).map(([category, scenes]) => (
-                          <optgroup key={category} label={category}>
-                            {scenes.map(scene => (
-                              <option key={scene.name} value={`${category}|||${scene.name}`}>
-                                {scene.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
+                        placeholder="请选择场景"
+                        options={[
+                          { value: '', label: '请选择场景' },
+                          ...Object.entries(sceneCategories).map(([category, scenes]) => ({
+                            group: category,
+                            options: scenes.map(scene => ({
+                              value: `${category}|||${scene.name}`,
+                              label: scene.name,
+                            })),
+                          })),
+                        ]}
+                      />
                     </div>
 
                     <div className="field-row">
                       <div className="field">
-                        <label className="field-label">性别</label>
-                        <select
-                          className="field-select"
-                          value={basicParams.gender}
-                          onChange={(e) => setBasicParams(prev => ({ ...prev, gender: e.target.value }))}
-                        >
-                          <option value="女">女</option>
-                          <option value="男">男</option>
-                        </select>
-                      </div>
-                      <div className="field">
                         <label className="field-label">输出尺寸</label>
-                        <select
-                          className="field-select"
+                        <CustomSelect
                           disabled={!imageOutputSizeOptions || imageOutputSizeOptions.length === 0}
                           value={
                             imageOutputSizeOptions === null
@@ -655,29 +641,26 @@ function App({ requireAuth }) {
                                 : (imageOutputSizeOptions[0]?.value ?? basicParams.imageSize))
                           }
                           onChange={(e) => setBasicParams(prev => ({ ...prev, imageSize: e.target.value }))}
-                        >
-                          {imageOutputSizeOptions === null && (
-                            <option value="">加载可选尺寸…</option>
-                          )}
-                          {(imageOutputSizeOptions ?? []).map((opt) => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
+                          placeholder={imageOutputSizeOptions === null ? '加载可选尺寸…' : '请选择尺寸'}
+                          options={
+                            imageOutputSizeOptions === null
+                              ? [{ value: '', label: '加载可选尺寸…' }]
+                              : imageOutputSizeOptions.map(opt => ({ value: opt.value, label: opt.label }))
+                          }
+                        />
                       </div>
                     </div>
 
                     <div className="field-row">
                       <div className="field">
                         <label className="field-label">生成数量</label>
-                        <select
-                          className="field-select"
+                        <CustomSelect
                           value={imageCount}
                           onChange={(e) => setImageCount(Number(e.target.value))}
-                        >
-                          {Array.from({ length: 10 }, (_, i) => i + 1).map(count => (
-                            <option key={count} value={count}>{count} 张</option>
-                          ))}
-                        </select>
+                          options={Array.from({ length: 10 }, (_, i) => i + 1).map(count => ({
+                            value: count, label: `${count} 张`,
+                          }))}
+                        />
                       </div>
                       <div className="field">
                         <label className="field-label">人脸保持</label>
@@ -699,59 +682,55 @@ function App({ requireAuth }) {
                   <div className="settings-body">
                     <div className="field">
                       <label className="field-label">视觉风格</label>
-                      <select
-                        className="field-select"
+                      <CustomSelect
                         value={basicParams.visualStyle}
                         onChange={(e) => setBasicParams(prev => ({ ...prev, visualStyle: e.target.value }))}
-                      >
-                        <option value="">请选择风格</option>
-                        {visualStyles.map(style => (
-                          <option key={style} value={style}>{style}</option>
-                        ))}
-                      </select>
+                        placeholder="请选择风格"
+                        options={[
+                          { value: '', label: '请选择风格' },
+                          ...visualStyles.map(style => ({ value: style, label: style })),
+                        ]}
+                      />
                     </div>
 
                     <div className="field-row">
                       <div className="field">
                         <label className="field-label">构图</label>
-                        <select
-                          className="field-select"
+                        <CustomSelect
                           value={advancedParams.composition}
                           onChange={(e) => setAdvancedParams(prev => ({ ...prev, composition: e.target.value }))}
-                        >
-                          <option value="">请选择构图</option>
-                          {compositions.map(comp => (
-                            <option key={comp} value={comp}>{comp}</option>
-                          ))}
-                        </select>
+                          placeholder="请选择构图"
+                          options={[
+                            { value: '', label: '请选择构图' },
+                            ...compositions.map(comp => ({ value: comp, label: comp })),
+                          ]}
+                        />
                       </div>
                       <div className="field">
                         <label className="field-label">光影</label>
-                        <select
-                          className="field-select"
+                        <CustomSelect
                           value={advancedParams.lighting}
                           onChange={(e) => setAdvancedParams(prev => ({ ...prev, lighting: e.target.value }))}
-                        >
-                          <option value="">请选择光影</option>
-                          {lightings.map(light => (
-                            <option key={light} value={light}>{light}</option>
-                          ))}
-                        </select>
+                          placeholder="请选择光影"
+                          options={[
+                            { value: '', label: '请选择光影' },
+                            ...lightings.map(light => ({ value: light, label: light })),
+                          ]}
+                        />
                       </div>
                     </div>
 
                     <div className="field">
                       <label className="field-label">情绪</label>
-                      <select
-                        className="field-select"
+                      <CustomSelect
                         value={advancedParams.mood}
                         onChange={(e) => setAdvancedParams(prev => ({ ...prev, mood: e.target.value }))}
-                      >
-                        <option value="">请选择情绪</option>
-                        {moods.map(mood => (
-                          <option key={mood} value={mood}>{mood}</option>
-                        ))}
-                      </select>
+                        placeholder="请选择情绪"
+                        options={[
+                          { value: '', label: '请选择情绪' },
+                          ...moods.map(mood => ({ value: mood, label: mood })),
+                        ]}
+                      />
                     </div>
                   </div>
                 )}
