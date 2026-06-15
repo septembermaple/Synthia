@@ -1,0 +1,8 @@
+<view class="page">
+  <view class="card legal-card">
+    <view class="legal-title">{{title}}</view>
+    <block wx:for="{{body}}" wx:key="*this">
+      <view class="paragraph">{{item}}</view>
+    </block>
+  </view>
+</view>

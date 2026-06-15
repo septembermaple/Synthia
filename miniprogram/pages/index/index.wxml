@@ -1,0 +1,70 @@
+<view class="page index-page">
+  <view class="hero">
+    <view>
+      <view class="title">Synthia</view>
+      <view class="subtitle">上传照片，生成专属 AI 写真</view>
+    </view>
+    <view wx:if="{{user}}" class="points">{{pointsText}} 积分</view>
+    <button wx:else class="login-mini" bindtap="goLogin">登录</button>
+  </view>
+
+  <view class="card panel">
+    <view class="section-title">参考照片</view>
+    <view class="upload-grid">
+      <block wx:for="{{images}}" wx:key="path">
+        <view class="thumb-wrap {{item.activeClass}}" data-index="{{index}}" bindtap="setPrimary">
+          <image class="thumb" mode="aspectFill" src="{{item.path}}" />
+          <view class="primary-tag" wx:if="{{item.isPrimary}}">主图</view>
+          <view class="remove" data-index="{{index}}" catchtap="removeImage">×</view>
+        </view>
+      </block>
+      <view class="add-tile" bindtap="chooseImage">+</view>
+    </view>
+  </view>
+
+  <view class="card panel">
+    <view class="section-title">生成设置</view>
+    <view class="field">
+      <text class="label">场景主题</text>
+      <picker mode="selector" range="{{sceneOptions}}" range-key="label" value="{{sceneIndex}}" bindchange="onSceneChange">
+        <view class="picker">{{sceneText}}</view>
+      </picker>
+    </view>
+    <view class="field">
+      <text class="label">视觉风格</text>
+      <picker mode="selector" range="{{styleOptions}}" value="{{styleIndex}}" bindchange="onStyleChange">
+        <view class="picker">{{styleText}}</view>
+      </picker>
+    </view>
+    <view class="settings-row">
+      <view class="field half">
+        <text class="label">输出尺寸</text>
+        <picker mode="selector" range="{{sizeOptions}}" range-key="label" value="{{sizeIndex}}" bindchange="onSizeChange">
+          <view class="picker">{{sizeText}}</view>
+        </picker>
+      </view>
+      <view class="field half">
+        <text class="label">张数</text>
+        <picker mode="selector" range="{{countOptions}}" value="{{imageCount - 1}}" bindchange="onCountChange">
+          <view class="picker">{{imageCount}} 张</view>
+        </picker>
+      </view>
+    </view>
+    <view class="switch-row">
+      <text>人脸保持</text>
+      <switch checked="{{keepFace}}" bindchange="onKeepFaceChange" color="#111827" />
+    </view>
+    <button class="btn btn-primary" loading="{{loading}}" bindtap="generate">开始生成</button>
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+  </view>
+
+  <view wx:if="{{results.length}}" class="results">
+    <view class="section-title">生成结果</view>
+    <block wx:for="{{results}}" wx:key="*this">
+      <view class="card result-card">
+        <image class="result-image" mode="widthFix" src="{{item}}" />
+        <button class="btn btn-secondary" data-url="{{item}}" bindtap="saveImage">保存到相册</button>
+      </view>
+    </block>
+  </view>
+</view>

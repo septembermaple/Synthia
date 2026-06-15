@@ -1,0 +1,84 @@
+.login-page {
+  padding-top: 80rpx;
+}
+
+.brand {
+  margin-bottom: 48rpx;
+}
+
+.brand-title {
+  font-size: 58rpx;
+  font-weight: 900;
+}
+
+.brand-subtitle {
+  margin-top: 10rpx;
+  color: #6b7280;
+  font-size: 28rpx;
+}
+
+.login-card {
+  padding: 32rpx;
+}
+
+.tabs {
+  display: flex;
+  padding: 6rpx;
+  margin-bottom: 28rpx;
+  border-radius: 14rpx;
+  background: #f3f4f6;
+}
+
+.tab {
+  flex: 1;
+  height: 68rpx;
+  border-radius: 10rpx;
+  color: #6b7280;
+  text-align: center;
+  line-height: 68rpx;
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+.tab.active {
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 6rpx 18rpx rgba(15, 23, 42, 0.08);
+}
+
+.code-row {
+  display: flex;
+  gap: 16rpx;
+}
+
+.code-input {
+  flex: 1;
+}
+
+.code-btn {
+  width: 150rpx;
+  height: 84rpx;
+  border-radius: 14rpx;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 26rpx;
+  line-height: 84rpx;
+}
+
+.agree {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  margin: 8rpx 0 30rpx;
+  color: #6b7280;
+  font-size: 24rpx;
+}
+
+.link {
+  color: #2563eb;
+}
+
+.submit {
+  margin-top: 12rpx;
+}

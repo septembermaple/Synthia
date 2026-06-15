@@ -1,0 +1,44 @@
+<view class="page login-page">
+  <view class="brand">
+    <view class="brand-title">Synthia</view>
+    <view class="brand-subtitle">AI 写真生成平台</view>
+  </view>
+
+  <view class="card login-card">
+    <view class="tabs">
+      <view class="tab {{passwordTabClass}}" data-mode="password" bindtap="setMode">密码登录</view>
+      <view class="tab {{codeTabClass}}" data-mode="code" bindtap="setMode">验证码登录</view>
+    </view>
+
+    <view class="field">
+      <text class="label">手机号</text>
+      <input class="input" type="number" maxlength="11" value="{{phone}}" bindinput="onPhoneInput" placeholder="请输入手机号" />
+    </view>
+
+    <view wx:if="{{isPasswordMode}}" class="field">
+      <text class="label">密码</text>
+      <input class="input" password value="{{password}}" bindinput="onPasswordInput" placeholder="请输入密码" />
+    </view>
+
+    <view wx:else class="field">
+      <text class="label">验证码</text>
+      <view class="code-row">
+        <input class="input code-input" type="number" maxlength="6" value="{{code}}" bindinput="onCodeInput" placeholder="请输入验证码" />
+        <button class="code-btn" disabled="{{countdown > 0}}" bindtap="sendCode">{{countdownText}}</button>
+      </view>
+    </view>
+
+    <checkbox-group bindchange="onAgreeChange">
+      <label class="agree">
+        <checkbox value="agree" checked="{{agreed}}" color="#111827" />
+        <text>我已阅读并同意</text>
+        <text class="link" data-type="terms" catchtap="openLegal">用户协议</text>
+        <text>和</text>
+        <text class="link" data-type="privacy" catchtap="openLegal">隐私政策</text>
+      </label>
+    </checkbox-group>
+
+    <button class="btn btn-primary submit" loading="{{loading}}" bindtap="submit">登录</button>
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+  </view>
+</view>

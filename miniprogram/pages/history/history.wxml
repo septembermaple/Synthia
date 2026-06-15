@@ -1,0 +1,35 @@
+<view class="page">
+  <view class="top-row">
+    <view class="page-title">生成历史</view>
+    <button class="refresh" loading="{{loading}}" bindtap="load">刷新</button>
+  </view>
+
+  <view wx:if="{{error}}" class="card empty-state">
+    <view class="empty">{{error}}</view>
+    <button class="btn btn-primary" bindtap="goLogin">去登录</button>
+  </view>
+
+  <view wx:elif="{{!records.length && !loading}}" class="card empty-state">
+    <view class="empty">暂无生成记录</view>
+  </view>
+
+  <block wx:for="{{records}}" wx:key="id">
+    <view class="card record">
+      <view class="record-head">
+        <view>
+          <view class="record-title">{{item.title}}</view>
+          <view class="muted small">{{item.timeText}}</view>
+        </view>
+        <button class="delete" data-id="{{item.id}}" bindtap="remove">删除</button>
+      </view>
+      <scroll-view scroll-x class="image-strip">
+        <block wx:for="{{item.images}}" wx:for-item="url" wx:key="*this">
+          <view class="history-image-wrap">
+            <image class="history-image" mode="aspectFill" src="{{url}}" />
+            <button class="save" data-url="{{url}}" bindtap="saveImage">保存</button>
+          </view>
+        </block>
+      </scroll-view>
+    </view>
+  </block>
+</view>

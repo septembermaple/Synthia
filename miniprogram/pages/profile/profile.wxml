@@ -1,0 +1,39 @@
+<view class="page">
+  <view wx:if="{{!user}}" class="card empty-profile">
+    <view class="empty">登录后查看积分、兑换码和流水</view>
+    <button class="btn btn-primary" bindtap="goLogin">去登录</button>
+  </view>
+
+  <block wx:else>
+    <view class="card user-card">
+      <view>
+        <view class="phone">{{userPhone}}</view>
+        <view class="muted">当前积分</view>
+      </view>
+      <view class="score">{{pointsText}}</view>
+    </view>
+
+    <view class="card panel">
+      <view class="section-title">兑换积分</view>
+      <input class="input" value="{{redeemCode}}" bindinput="onRedeemInput" placeholder="输入兑换码" />
+      <button class="btn btn-secondary action" bindtap="redeem">兑换</button>
+      <view wx:if="{{message}}" class="message">{{message}}</view>
+    </view>
+
+    <view class="card panel">
+      <view class="section-title">积分流水</view>
+      <view wx:if="{{!transactions.length}}" class="muted small">暂无流水</view>
+      <block wx:for="{{transactions}}" wx:key="id">
+        <view class="tx">
+          <view>
+            <view class="tx-desc">{{item.descText}}</view>
+            <view class="muted small">{{item.timeText}}</view>
+          </view>
+          <view class="tx-amount">{{item.amountText}}</view>
+        </view>
+      </block>
+    </view>
+
+    <button class="btn btn-danger logout" bindtap="logout">退出登录</button>
+  </block>
+</view>

@@ -1,0 +1,85 @@
+.top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24rpx;
+}
+
+.page-title {
+  font-size: 40rpx;
+  font-weight: 900;
+}
+
+.refresh {
+  width: 128rpx;
+  height: 64rpx;
+  border-radius: 999rpx;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 24rpx;
+  line-height: 64rpx;
+}
+
+.empty-state,
+.record {
+  padding: 24rpx;
+  margin-bottom: 24rpx;
+}
+
+.record-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 18rpx;
+}
+
+.record-title {
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.small {
+  margin-top: 6rpx;
+  font-size: 24rpx;
+}
+
+.delete {
+  width: 104rpx;
+  height: 56rpx;
+  border-radius: 12rpx;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 24rpx;
+  line-height: 56rpx;
+}
+
+.image-strip {
+  width: 100%;
+  white-space: nowrap;
+}
+
+.history-image-wrap {
+  display: inline-block;
+  width: 260rpx;
+  margin-right: 16rpx;
+  vertical-align: top;
+}
+
+.history-image {
+  width: 260rpx;
+  height: 340rpx;
+  border-radius: 12rpx;
+  background: #e5e7eb;
+}
+
+.save {
+  width: 100%;
+  height: 60rpx;
+  margin-top: 10rpx;
+  border-radius: 12rpx;
+  background: #111827;
+  color: #ffffff;
+  font-size: 24rpx;
+  line-height: 60rpx;
+}
