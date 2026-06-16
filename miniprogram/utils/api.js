@@ -103,6 +103,15 @@ module.exports = {
     return data;
   },
 
+  async loginWithWechat(code) {
+    const data = await request('/api/auth/login-wechat', {
+      method: 'POST',
+      data: { code }
+    });
+    persistTokens(data);
+    return data;
+  },
+
   async logout() {
     setToken('');
     setRefreshToken('');

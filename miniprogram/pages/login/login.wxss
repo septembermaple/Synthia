@@ -82,3 +82,32 @@
 .submit {
   margin-top: 12rpx;
 }
+
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 32rpx 0;
+}
+
+.divider-line {
+  flex: 1;
+  height: 2rpx;
+  background: #e5e7eb;
+}
+
+.divider-text {
+  padding: 0 20rpx;
+  color: #9ca3af;
+  font-size: 24rpx;
+}
+
+.btn-wechat {
+  background: linear-gradient(135deg, #07c160 0%, #10b981 100%);
+  color: #ffffff;
+  border: none;
+  font-weight: 600;
+}
+
+.btn-wechat:active {
+  opacity: 0.85;
+}

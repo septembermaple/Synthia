@@ -40,5 +40,15 @@
 
     <button class="btn btn-primary submit" loading="{{loading}}" bindtap="submit">登录</button>
     <view wx:if="{{error}}" class="error">{{error}}</view>
+
+    <view class="divider">
+      <view class="divider-line"></view>
+      <text class="divider-text">或</text>
+      <view class="divider-line"></view>
+    </view>
+
+    <button class="btn btn-wechat" loading="{{loading}}" bindtap="wechatLogin">
+      <text class="wechat-icon">微信登录</text>
+    </button>
   </view>
 </view>

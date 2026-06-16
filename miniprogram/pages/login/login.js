@@ -91,5 +91,27 @@ Page({
 
   openLegal(e) {
     wx.navigateTo({ url: `/pages/legal/legal?type=${e.currentTarget.dataset.type}` });
+  },
+
+  async wechatLogin() {
+    this.setData({ loading: true, error: '' });
+    try {
+      const res = await new Promise((resolve, reject) => {
+        wx.login({
+          success: resolve,
+          fail: reject
+        });
+      });
+      if (!res.code) {
+        throw new Error('获取微信登录凭证失败');
+      }
+      const data = await api.loginWithWechat(res.code);
+      if (data.user) getApp().globalData.user = data.user;
+      wx.switchTab({ url: '/pages/index/index' });
+    } catch (error) {
+      this.setData({ error: error.message || '微信登录失败，请重试' });
+    } finally {
+      this.setData({ loading: false });
+    }
   }
 });
